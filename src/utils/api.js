@@ -61,23 +61,27 @@ async function callClaude(apiKey, messages) {
   }
 }
 
-// Claude Vision: extract recipe from photo
-// Claude always estimates macros — from printed info if available, otherwise from ingredients
-export async function extractRecipeFromPhoto(base64Image, mimeType = 'image/jpeg') {
+// Claude Vision: extract ONE recipe from one or more photos
+// Multiple photos are treated as different views of the same recipe (front/back, multiple pages)
+export async function extractRecipeFromPhotos(images) {
   const apiKey = await getAnthropicKey();
 
-  return callClaude(apiKey, [{
-    role: 'user',
-    content: [
-      {
-        type: 'image',
-        source: { type: 'base64', media_type: mimeType, data: base64Image },
-      },
-      {
-        type: 'text',
-        text: `Analyze this recipe image and extract the full recipe.
+  const content = [];
 
-MACROS: First, look for any pre-printed nutrition information on the card (calories, protein, carbs, fat per serving). If you find printed macros, use those exact values and set macroSource to "card". If NO printed macros are found, estimate the macros per serving yourself based on the ingredients and quantities — use your knowledge of nutritional data for common foods. Set macroSource to "estimated" in that case.
+  // Add all images
+  images.forEach((img, i) => {
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mimeType || 'image/jpeg', data: img.base64 },
+    });
+  });
+
+  // Add the prompt
+  content.push({
+    type: 'text',
+    text: `These ${images.length} photo${images.length > 1 ? 's are different views of the SAME recipe' : ' shows a recipe'} (e.g. front and back of a card, multiple cookbook pages). Combine all information into ONE complete recipe.
+
+MACROS: First, look for any pre-printed nutrition information (calories, protein, carbs, fat per serving). If you find printed macros, use those exact values and set macroSource to "card". If NO printed macros are found, estimate the macros per serving yourself based on the ingredients — use your knowledge of nutritional data. Set macroSource to "calculated" in that case.
 
 ALWAYS include macros — never return null for macros.
 
@@ -94,9 +98,9 @@ Return ONLY valid JSON with no preamble, no markdown fences:
 }
 
 For ingredients, always include quantity, unit, and name. If a quantity is not clear, estimate reasonably. Return ONLY the JSON object.`,
-      },
-    ],
-  }]);
+  });
+
+  return callClaude(apiKey, [{ role: 'user', content }]);
 }
 
 // Claude: estimate macros from an ingredient list (used by recipe editor "Recalculate" button)

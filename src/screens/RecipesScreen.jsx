@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
-import { extractRecipeFromPhoto, calculateMacros } from '../utils/api';
+import { extractRecipeFromPhotos, calculateMacros } from '../utils/api';
 
 // Resize an image file via canvas. Returns a data URL (image/jpeg).
 function resizeImage(file, maxSize, quality = 0.8) {
@@ -245,12 +245,11 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
   );
 }
 
-// Multi-photo upload modal
+// Multi-photo upload modal — all photos = one recipe
 function PhotoUploader({ onDone, onCancel, userId }) {
   const [photos, setPhotos] = useState([]); // [{ file, preview, base64, mimeType }]
   const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, name: '' });
-  const [results, setResults] = useState([]); // [{ success, name, error? }]
+  const [result, setResult] = useState(null); // { success, name, error? }
 
   const handleFiles = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -278,67 +277,60 @@ function PhotoUploader({ onDone, onCancel, userId }) {
   const handleSubmit = async () => {
     if (photos.length === 0) return;
     setProcessing(true);
-    setResults([]);
-    setProgress({ current: 0, total: photos.length, name: '' });
+    setResult(null);
 
-    const allResults = [];
+    try {
+      // Send ALL photos to Claude in one call → one recipe
+      const images = photos.map(p => ({ base64: p.base64, mimeType: p.mimeType }));
+      const extracted = await extractRecipeFromPhotos(images);
 
-    for (let i = 0; i < photos.length; i++) {
-      const photo = photos[i];
-      setProgress({ current: i + 1, total: photos.length, name: `Photo ${i + 1} of ${photos.length}` });
+      // Use first photo as recipe card thumbnail
+      const thumbnail = await compressImage(photos[0].file);
 
-      try {
-        const extracted = await extractRecipeFromPhoto(photo.base64, photo.mimeType);
+      await insertRecipe({
+        ...extracted,
+        macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        macroSource: extracted.macroSource === 'card' ? 'card' : 'calculated',
+        photo: thumbnail,
+        notes: '',
+      }, userId);
 
-        // Compress the photo for the recipe card thumbnail
-        const thumbnail = await compressImage(photo.file, 400);
-
-        await insertRecipe({
-          ...extracted,
-          macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
-          macroSource: extracted.macroSource === 'card' ? 'card' : 'calculated',
-          photo: thumbnail,
-          notes: '',
-        }, userId);
-
-        allResults.push({ success: true, name: extracted.name || `Recipe ${i + 1}` });
-      } catch (err) {
-        allResults.push({ success: false, name: `Photo ${i + 1}`, error: err.message });
-      }
+      setResult({ success: true, name: extracted.name || 'New Recipe' });
+    } catch (err) {
+      setResult({ success: false, error: err.message });
     }
 
-    setResults(allResults);
     setProcessing(false);
   };
-
-  const allDone = results.length > 0;
-  const successCount = results.filter(r => r.success).length;
 
   return (
     <div className="modal-overlay" onClick={!processing ? onCancel : undefined}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{allDone ? 'All Done!' : 'Upload Recipe Photos'}</h2>
+          <h2>{result ? (result.success ? 'Recipe Added!' : 'Something Went Wrong') : 'Upload Recipe Photos'}</h2>
           {!processing && <button className="modal-close" onClick={onCancel}>&times;</button>}
         </div>
 
-        {/* Results screen */}
-        {allDone && (
+        {/* Result screen */}
+        {result && (
           <div>
-            <p style={{ fontSize: 16, color: 'var(--sage-dark)', fontWeight: 600, marginBottom: 16 }}>
-              {successCount} recipe{successCount !== 1 ? 's' : ''} added!
-            </p>
-            {results.map((r, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 12px', background: r.success ? '#E8F0E8' : '#FAE5E2',
-                borderRadius: 'var(--radius-sm)', marginBottom: 6,
+            {result.success ? (
+              <div style={{
+                padding: '16px', background: '#E8F0E8',
+                borderRadius: 'var(--radius-sm)', marginBottom: 16, textAlign: 'center',
               }}>
-                <span style={{ fontSize: 18 }}>{r.success ? '\u2713' : '\u2717'}</span>
-                <span style={{ fontSize: 15, fontWeight: 500 }}>{r.name}</span>
-                {r.error && <span style={{ fontSize: 13, color: 'var(--red-soft)' }}>— {r.error}</span>}
+                <div style={{ fontSize: 32, marginBottom: 8 }}>&#10003;</div>
+                <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--sage-dark)' }}>{result.name}</p>
+                <p style={{ fontSize: 14, color: 'var(--text-light)', marginTop: 4 }}>added to your recipe library</p>
               </div>
-            ))}
+            ) : (
+              <div style={{
+                padding: '12px 14px', background: '#FAE5E2',
+                borderRadius: 'var(--radius-sm)', marginBottom: 16,
+              }}>
+                <p style={{ fontSize: 15, color: 'var(--red-soft)' }}>{result.error}</p>
+              </div>
+            )}
             <button className="btn btn-primary btn-full" style={{ marginTop: 16 }}
               onClick={() => { onDone(); }}>
               Done
@@ -347,28 +339,27 @@ function PhotoUploader({ onDone, onCancel, userId }) {
         )}
 
         {/* Processing screen */}
-        {processing && !allDone && (
+        {processing && (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--sage-dark)', marginBottom: 8 }}>
-              Reading {progress.name}...
+              Reading your recipe...
             </p>
             <div className="progress-bar-track" style={{ marginBottom: 8 }}>
               <div className="progress-bar-fill" style={{
-                width: `${(progress.current / progress.total) * 100}%`,
-                background: 'var(--sage)',
+                width: '70%', background: 'var(--sage)',
               }} />
             </div>
             <p style={{ fontSize: 14, color: 'var(--text-light)' }}>
-              This may take a moment per photo.
+              Analyzing {photos.length} photo{photos.length !== 1 ? 's' : ''}. This may take a moment.
             </p>
           </div>
         )}
 
         {/* Selection screen */}
-        {!processing && !allDone && (
+        {!processing && !result && (
           <>
             <p style={{ fontSize: 15, color: 'var(--text-light)', marginBottom: 16 }}>
-              Add photos of recipe cards, cookbook pages, or HelloFresh cards. Then tap Submit to read them all.
+              Add all photos for one recipe (front, back, multiple pages). They'll be read together as one recipe.
             </p>
 
             {/* Photo grid */}
@@ -404,7 +395,7 @@ function PhotoUploader({ onDone, onCancel, userId }) {
             {/* Submit */}
             {photos.length > 0 && (
               <button className="btn btn-primary btn-full" onClick={handleSubmit} style={{ fontSize: 18 }}>
-                Submit {photos.length} Photo{photos.length !== 1 ? 's' : ''}
+                Read Recipe from {photos.length} Photo{photos.length !== 1 ? 's' : ''}
               </button>
             )}
           </>
