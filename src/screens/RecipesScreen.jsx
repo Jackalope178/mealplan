@@ -178,13 +178,34 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
         {/* Instructions */}
         {recipe.instructions && (
           <div style={{ marginBottom: 20 }}>
-            <h3 style={{ marginBottom: 10, color: 'var(--sage-dark)' }}>How to Make It</h3>
-            <div style={{
-              fontSize: 16, lineHeight: 1.7, color: 'var(--text)',
-              whiteSpace: 'pre-wrap',
-            }}>
-              {recipe.instructions}
-            </div>
+            <h3 style={{ marginBottom: 14, color: 'var(--sage-dark)' }}>How to Make It</h3>
+            {recipe.instructions.split(/\n+/).filter(s => s.trim()).map((step, i) => {
+              // Strip leading step numbers like "1." or "Step 1:"
+              const cleaned = step.replace(/^(step\s*)?\d+[\.\:\)\-]\s*/i, '').trim();
+              if (!cleaned) return null;
+              return (
+                <div key={i} style={{
+                  display: 'flex', gap: 14, marginBottom: 16,
+                  alignItems: 'flex-start',
+                }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: 'var(--sage)', color: 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: 'var(--font-display)', fontWeight: 800,
+                    fontSize: 18, flexShrink: 0,
+                  }}>
+                    {i + 1}
+                  </div>
+                  <p style={{
+                    fontSize: 17, lineHeight: 1.6, color: 'var(--text)',
+                    paddingTop: 6, flex: 1,
+                  }}>
+                    {cleaned}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         )}
 
