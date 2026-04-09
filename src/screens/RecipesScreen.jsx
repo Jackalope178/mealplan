@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
-import { extractRecipeFromPhotos, calculateMacros } from '../utils/api';
+import { extractRecipeFromPhotos, calculateMacros, estimateIngredientMacros } from '../utils/api';
 
 const PRESET_TAGS = [
   'Chicken', 'Beef', 'Pork', 'Fish', 'Shrimp', 'Turkey', 'Lamb',
@@ -115,6 +115,75 @@ function HeartButton({ isFavorite, onToggle }) {
   );
 }
 
+function PencilIcon({ onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+      color: 'var(--sage)', display: 'flex', alignItems: 'center',
+    }} title="Edit">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+        <path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+      </svg>
+    </button>
+  );
+}
+
+function IngredientMacroEditor({ ingredient, onUpdate, onEstimate, estimating }) {
+  const [showMacros, setShowMacros] = useState(!!ingredient.macros);
+  const macros = ingredient.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 };
+
+  return (
+    <div style={{
+      padding: '10px 0',
+      borderBottom: '1px solid var(--cream-dark)',
+    }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
+        <input placeholder="Qty" value={ingredient.quantity}
+          onChange={e => onUpdate({ ...ingredient, quantity: e.target.value })}
+          style={{ width: 60, padding: '8px 10px' }} />
+        <input placeholder="Unit" value={ingredient.unit}
+          onChange={e => onUpdate({ ...ingredient, unit: e.target.value })}
+          style={{ width: 70, padding: '8px 10px' }} />
+        <input placeholder="Ingredient" value={ingredient.name}
+          onChange={e => onUpdate({ ...ingredient, name: e.target.value })}
+          style={{ flex: 1, padding: '8px 10px' }} />
+      </div>
+      <button onClick={() => setShowMacros(!showMacros)} style={{
+        background: 'none', border: 'none', fontSize: 13, color: 'var(--sage-dark)',
+        fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-display)', padding: '2px 0',
+      }}>
+        {showMacros ? 'Hide macros' : '+ Add macros for this ingredient'}
+      </button>
+      {showMacros && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button className="btn btn-sm btn-secondary" style={{ fontSize: 13, padding: '6px 10px' }}
+              onClick={() => onEstimate(ingredient)} disabled={estimating}>
+              {estimating ? 'Estimating...' : 'Estimate'}
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+            {['calories', 'protein', 'carbs', 'fat'].map(key => (
+              <div key={key}>
+                <label style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 600 }}>
+                  {key === 'calories' ? 'Cal' : key.charAt(0).toUpperCase() + key.slice(1)}
+                </label>
+                <input type="number" min="0" value={macros[key]}
+                  style={{ padding: '6px 8px', fontSize: 14 }}
+                  onChange={e => onUpdate({
+                    ...ingredient,
+                    macros: { ...macros, [key]: parseInt(e.target.value) || 0 },
+                  })} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function parseSteps(instructions) {
   if (!instructions) return [];
   const text = String(instructions);
@@ -142,9 +211,61 @@ function parseSteps(instructions) {
     .filter(function(s) { return s.length > 0; });
 }
 
-function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavorite }) {
+function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavorite, onSave }) {
   const isMine = recipe.createdBy === userId;
   const isFav = (recipe.favoritedBy || []).includes(userId);
+  const [editingIngredients, setEditingIngredients] = useState(false);
+  const [editingSteps, setEditingSteps] = useState(false);
+  const [ingredients, setIngredients] = useState(recipe.ingredients || []);
+  const [instructions, setInstructions] = useState(recipe.instructions || '');
+  const [estimatingIdx, setEstimatingIdx] = useState(-1);
+  const [saving, setSaving] = useState(false);
+
+  const updateIngredient = (idx, updated) => {
+    const arr = [...ingredients];
+    arr[idx] = updated;
+    setIngredients(arr);
+  };
+
+  const addIngredient = () => {
+    setIngredients([...ingredients, { quantity: '', unit: '', name: '' }]);
+  };
+
+  const removeIngredient = (idx) => {
+    setIngredients(ingredients.filter((_, i) => i !== idx));
+  };
+
+  const handleEstimateIngredient = async (ing, idx) => {
+    if (!ing.name.trim()) return;
+    setEstimatingIdx(idx);
+    try {
+      const macros = await estimateIngredientMacros(ing.quantity, ing.unit, ing.name);
+      const arr = [...ingredients];
+      arr[idx] = { ...arr[idx], macros };
+      setIngredients(arr);
+    } catch (err) {
+      alert('Could not estimate: ' + err.message);
+    }
+    setEstimatingIdx(-1);
+  };
+
+  const saveIngredients = async () => {
+    setSaving(true);
+    try {
+      await onSave(recipe.id, { ingredients: ingredients.filter(i => i.name.trim()) });
+      setEditingIngredients(false);
+    } catch (err) { alert('Could not save: ' + err.message); }
+    setSaving(false);
+  };
+
+  const saveSteps = async () => {
+    setSaving(true);
+    try {
+      await onSave(recipe.id, { instructions });
+      setEditingSteps(false);
+    } catch (err) { alert('Could not save: ' + err.message); }
+    setSaving(false);
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -155,7 +276,6 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
 
-        {/* Photo */}
         {recipe.photo && (
           <img src={recipe.photo} alt={recipe.name} style={{
             width: '100%', maxHeight: 240, objectFit: 'cover',
@@ -163,7 +283,6 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
           }} />
         )}
 
-        {/* Macros + badge */}
         <div style={{ marginBottom: 16 }}>
           <MacroPills macros={recipe.macros} />
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
@@ -174,64 +293,108 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
           </div>
         </div>
 
-        {/* Tags */}
         {recipe.tags?.length > 0 && (
           <div style={{ marginBottom: 16 }}><TagChips tags={recipe.tags} /></div>
         )}
 
         {/* Ingredients */}
-        {recipe.ingredients?.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <h3 style={{ marginBottom: 10, color: 'var(--sage-dark)' }}>Ingredients</h3>
-            {recipe.ingredients.map((ing, i) => (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <h3 style={{ color: 'var(--sage-dark)', flex: 1 }}>Ingredients</h3>
+            {isMine && !editingIngredients && (
+              <PencilIcon onClick={() => setEditingIngredients(true)} />
+            )}
+          </div>
+
+          {editingIngredients ? (
+            <div>
+              {ingredients.map((ing, i) => (
+                <div key={i} style={{ position: 'relative' }}>
+                  <IngredientMacroEditor
+                    ingredient={ing}
+                    onUpdate={(updated) => updateIngredient(i, updated)}
+                    onEstimate={(ing2) => handleEstimateIngredient(ing2, i)}
+                    estimating={estimatingIdx === i}
+                  />
+                  <button onClick={() => removeIngredient(i)} style={{
+                    position: 'absolute', top: 10, right: 0,
+                    background: 'none', border: 'none', color: 'var(--warm-gray-light)',
+                    fontSize: 18, cursor: 'pointer',
+                  }}>&times;</button>
+                </div>
+              ))}
+              <button className="btn btn-secondary btn-sm" onClick={addIngredient}
+                style={{ marginTop: 8, marginRight: 8 }}>+ Add</button>
+              <button className="btn btn-primary btn-sm" onClick={saveIngredients}
+                disabled={saving} style={{ marginTop: 8 }}>
+                {saving ? 'Saving...' : 'Save Ingredients'}
+              </button>
+              <button className="btn btn-sm" onClick={() => { setIngredients(recipe.ingredients || []); setEditingIngredients(false); }}
+                style={{ marginTop: 8, marginLeft: 8, color: 'var(--text-light)', background: 'none' }}>Cancel</button>
+            </div>
+          ) : (
+            (recipe.ingredients || []).map((ing, i) => (
               <div key={i} style={{
-                display: 'flex', alignItems: 'baseline', gap: 8,
-                padding: '8px 0',
+                display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 0',
                 borderBottom: i < recipe.ingredients.length - 1 ? '1px solid var(--cream-dark)' : 'none',
               }}>
                 <span style={{
                   width: 8, height: 8, borderRadius: '50%', background: 'var(--sage-light)',
                   flexShrink: 0, marginTop: 6,
                 }} />
-                <span style={{ fontSize: 16 }}>
-                  {ing.quantity && <strong>{ing.quantity} {ing.unit}</strong>}
-                  {ing.quantity ? ' ' : ''}{ing.name}
-                </span>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 16 }}>
+                    {ing.quantity && <strong>{ing.quantity} {ing.unit}</strong>}
+                    {ing.quantity ? ' ' : ''}{ing.name}
+                  </span>
+                  {ing.macros && (
+                    <div style={{ fontSize: 12, color: 'var(--text-light)', marginTop: 2 }}>
+                      {ing.macros.calories} cal · P{ing.macros.protein}g · C{ing.macros.carbs}g · F{ing.macros.fat}g
+                    </div>
+                  )}
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
 
         {/* Instructions */}
-        {recipe.instructions && (
-          <div style={{ marginBottom: 20 }}>
-            <h3 style={{ marginBottom: 14, color: 'var(--sage-dark)' }}>How to Make It</h3>
-            {parseSteps(recipe.instructions).map((step, i) => (
-              <div key={i} style={{
-                display: 'flex', gap: 14, marginBottom: 16,
-                alignItems: 'flex-start',
-              }}>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <h3 style={{ color: 'var(--sage-dark)', flex: 1 }}>How to Make It</h3>
+            {isMine && !editingSteps && (
+              <PencilIcon onClick={() => setEditingSteps(true)} />
+            )}
+          </div>
+
+          {editingSteps ? (
+            <div>
+              <textarea value={instructions} onChange={e => setInstructions(e.target.value)}
+                rows={10} style={{ resize: 'vertical', fontSize: 16, lineHeight: 1.6, marginBottom: 8 }} />
+              <button className="btn btn-primary btn-sm" onClick={saveSteps} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Steps'}
+              </button>
+              <button className="btn btn-sm" onClick={() => { setInstructions(recipe.instructions || ''); setEditingSteps(false); }}
+                style={{ marginLeft: 8, color: 'var(--text-light)', background: 'none' }}>Cancel</button>
+            </div>
+          ) : (
+            recipe.instructions && parseSteps(recipe.instructions).map((step, i) => (
+              <div key={i} style={{ display: 'flex', gap: 14, marginBottom: 16, alignItems: 'flex-start' }}>
                 <div style={{
                   width: 36, height: 36, borderRadius: '50%',
                   background: 'var(--sage)', color: 'white',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontFamily: 'var(--font-display)', fontWeight: 800,
                   fontSize: 18, flexShrink: 0,
-                }}>
-                  {i + 1}
-                </div>
-                <p style={{
-                  fontSize: 17, lineHeight: 1.6, color: 'var(--text)',
-                  paddingTop: 6, flex: 1,
-                }}>
+                }}>{i + 1}</div>
+                <p style={{ fontSize: 17, lineHeight: 1.6, color: 'var(--text)', paddingTop: 6, flex: 1 }}>
                   {step}
                 </p>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
 
-        {/* Notes */}
         {recipe.notes && (
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ marginBottom: 8, color: 'var(--terracotta)' }}>My Notes</h3>
@@ -239,22 +402,17 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
               fontSize: 15, color: 'var(--text-light)', fontStyle: 'italic',
               background: 'var(--cream)', padding: '12px 14px',
               borderRadius: 'var(--radius-sm)', lineHeight: 1.5,
-            }}>
-              {recipe.notes}
-            </p>
+            }}>{recipe.notes}</p>
           </div>
         )}
 
-        {/* Actions */}
         {isMine && (
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
             <button className="btn btn-primary btn-full" onClick={() => { onClose(); onEdit(recipe); }}>
-              Edit Recipe
+              Edit Full Recipe
             </button>
             <button className="btn btn-full" style={{ background: '#FAE5E2', color: 'var(--red-soft)' }}
-              onClick={() => { onClose(); onDelete(recipe.id); }}>
-              Delete
-            </button>
+              onClick={() => { onClose(); onDelete(recipe.id); }}>Delete</button>
           </div>
         )}
       </div>
@@ -723,7 +881,13 @@ export default function RecipesScreen({ userId }) {
           onClose={() => setViewing(null)}
           onEdit={(r) => { setViewing(null); setEditing(r); }}
           onDelete={(id) => { setViewing(null); handleDelete(id); }}
-          onToggleFavorite={handleToggleFavorite} />
+          onToggleFavorite={handleToggleFavorite}
+          onSave={async (id, updates) => {
+            await patchRecipe(id, updates);
+            await loadRecipes();
+            const updated = (await fetchRecipes()).find(r => r.id === id);
+            if (updated) setViewing(updated);
+          }} />
       )}
 
       {showUploader && (

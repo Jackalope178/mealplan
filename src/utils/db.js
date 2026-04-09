@@ -72,6 +72,59 @@ export async function removeRecipe(id) {
   if (error) throw error;
 }
 
+// ─── Foods (personal common foods) ──────────────────────────────────
+
+export async function fetchFoods() {
+  const { data, error } = await supabase
+    .from('foods')
+    .select('*')
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(f => ({
+    id: f.id,
+    createdBy: f.created_by,
+    name: f.name,
+    brand: f.brand || '',
+    servingSize: f.serving_size || '1 serving',
+    macros: f.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    macroSource: f.macro_source || 'manual',
+    createdAt: f.created_at,
+  }));
+}
+
+export async function insertFood(food, userId) {
+  const { data, error } = await supabase
+    .from('foods')
+    .insert({
+      created_by: userId,
+      name: food.name,
+      brand: food.brand || '',
+      serving_size: food.servingSize || '1 serving',
+      macros: food.macros,
+      macro_source: food.macroSource || 'manual',
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function patchFood(id, updates) {
+  const payload = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.brand !== undefined) payload.brand = updates.brand;
+  if (updates.servingSize !== undefined) payload.serving_size = updates.servingSize;
+  if (updates.macros !== undefined) payload.macros = updates.macros;
+  if (updates.macroSource !== undefined) payload.macro_source = updates.macroSource;
+  const { error } = await supabase.from('foods').update(payload).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeFood(id) {
+  const { error } = await supabase.from('foods').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ─── Favorites ──────────────────────────────────────────────────────
 
 export async function addFavorite(userId, recipeId) {

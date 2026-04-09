@@ -5,6 +5,7 @@ import AuthScreen from './screens/AuthScreen';
 import Onboarding from './screens/Onboarding';
 import HomeScreen from './screens/HomeScreen';
 import RecipesScreen from './screens/RecipesScreen';
+import FoodsScreen from './screens/FoodsScreen';
 import PlanScreen from './screens/PlanScreen';
 import LogScreen from './screens/LogScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -104,6 +105,8 @@ function App() {
         return <HomeScreen key={refreshKey} userId={userId} userName={userName} onNavigate={handleTabChange} />;
       case 'recipes':
         return <RecipesScreen key={refreshKey} userId={userId} />;
+      case 'foods':
+        return <FoodsScreen key={refreshKey} userId={userId} />;
       case 'plan':
         return <PlanScreen key={refreshKey} userId={userId} />;
       case 'log':

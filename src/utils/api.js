@@ -134,3 +134,52 @@ Return ONLY valid JSON, no preamble:
     fat: Math.round(result.fat || 0),
   };
 }
+
+// Estimate macros for a single food item
+export async function estimateFoodMacros(name, brand, servingSize) {
+  const apiKey = await getAnthropicKey();
+  const desc = brand ? `${name} (${brand})` : name;
+
+  const result = await callClaude(apiKey, [{
+    role: 'user',
+    content: `Estimate the macronutrients for this food item per serving.
+
+Food: ${desc}
+Serving size: ${servingSize}
+
+Use your knowledge of nutritional data. If a brand is specified, use brand-specific data if you know it.
+
+Return ONLY valid JSON, no preamble:
+{ "calories": 200, "protein": 10, "carbs": 25, "fat": 8 }`,
+  }]);
+
+  return {
+    calories: Math.round(result.calories || 0),
+    protein: Math.round(result.protein || 0),
+    carbs: Math.round(result.carbs || 0),
+    fat: Math.round(result.fat || 0),
+  };
+}
+
+// Estimate macros for a single ingredient
+export async function estimateIngredientMacros(quantity, unit, name) {
+  const apiKey = await getAnthropicKey();
+  const desc = `${quantity} ${unit} ${name}`.trim();
+
+  const result = await callClaude(apiKey, [{
+    role: 'user',
+    content: `Estimate the macronutrients for this single ingredient as used in a recipe.
+
+Ingredient: ${desc}
+
+Return ONLY valid JSON, no preamble:
+{ "calories": 200, "protein": 10, "carbs": 25, "fat": 8 }`,
+  }]);
+
+  return {
+    calories: Math.round(result.calories || 0),
+    protein: Math.round(result.protein || 0),
+    carbs: Math.round(result.carbs || 0),
+    fat: Math.round(result.fat || 0),
+  };
+}
