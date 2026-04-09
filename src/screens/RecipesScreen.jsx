@@ -115,6 +115,33 @@ function HeartButton({ isFavorite, onToggle }) {
   );
 }
 
+function parseSteps(instructions) {
+  if (!instructions) return [];
+  const text = String(instructions);
+  const steps = [];
+
+  text.split('\n').forEach(function(line) {
+    // Try splitting on inline step numbers like " 2. " mid-line
+    var segments = line.split(/\s+(\d+\.\s)/);
+    var buffer = '';
+    for (var i = 0; i < segments.length; i++) {
+      var s = segments[i];
+      if (/^\d+\.\s$/.test(s)) {
+        if (buffer.trim()) steps.push(buffer.trim());
+        buffer = '';
+      } else {
+        buffer += s;
+      }
+    }
+    if (buffer.trim()) steps.push(buffer.trim());
+  });
+
+  // Strip leading step numbers like "1." or "Step 1:"
+  return steps
+    .map(function(s) { return s.replace(/^(step\s*)?\d+[.:\s]+/i, '').trim(); })
+    .filter(function(s) { return s.length > 0; });
+}
+
 function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavorite }) {
   const isMine = recipe.createdBy === userId;
   const isFav = (recipe.favoritedBy || []).includes(userId);
@@ -179,52 +206,28 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
         {recipe.instructions && (
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ marginBottom: 14, color: 'var(--sage-dark)' }}>How to Make It</h3>
-            {(() => {
-              // Parse steps: split on newlines, then on inline "N. " patterns
-              const text = recipe.instructions || '';
-              const steps = [];
-              text.split('\n').forEach(line => {
-                // Split on patterns like " 2. " or " 3. " mid-sentence
-                const parts = line.split(/\s+(\d+\.\s)/);
-                let buffer = '';
-                for (let i = 0; i < parts.length; i++) {
-                  const p = parts[i];
-                  if (/^\d+\.\s$/.test(p)) {
-                    if (buffer.trim()) steps.push(buffer.trim());
-                    buffer = '';
-                  } else {
-                    buffer += p;
-                  }
-                }
-                if (buffer.trim()) steps.push(buffer.trim());
-              });
-              return steps
-                .map(s => s.replace(/^(step\s*)?\d+[.:)\-]\s*/i, '').trim())
-                .filter(s => s.length > 0);
-            })().map((step, i) => {
-              return (
-                <div key={i} style={{
-                  display: 'flex', gap: 14, marginBottom: 16,
-                  alignItems: 'flex-start',
+            {parseSteps(recipe.instructions).map((step, i) => (
+              <div key={i} style={{
+                display: 'flex', gap: 14, marginBottom: 16,
+                alignItems: 'flex-start',
+              }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: 'var(--sage)', color: 'white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'var(--font-display)', fontWeight: 800,
+                  fontSize: 18, flexShrink: 0,
                 }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: '50%',
-                    background: 'var(--sage)', color: 'white',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: 'var(--font-display)', fontWeight: 800,
-                    fontSize: 18, flexShrink: 0,
-                  }}>
-                    {i + 1}
-                  </div>
-                  <p style={{
-                    fontSize: 17, lineHeight: 1.6, color: 'var(--text)',
-                    paddingTop: 6, flex: 1,
-                  }}>
-                    {step}
-                  </p>
+                  {i + 1}
                 </div>
-              );
-            })}
+                <p style={{
+                  fontSize: 17, lineHeight: 1.6, color: 'var(--text)',
+                  paddingTop: 6, flex: 1,
+                }}>
+                  {step}
+                </p>
+              </div>
+            ))}
           </div>
         )}
 
