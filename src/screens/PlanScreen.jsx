@@ -1,8 +1,8 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  getWeekPlan, saveWeekPlan, getWeekKey, getWeekDates,
-  getDayName, getGoals, getRecipes, createEmptyWeek,
-} from '../utils/storage';
+  fetchWeekPlan, upsertWeekPlan, fetchGoals, fetchRecipes,
+} from '../utils/db';
+import { getWeekKey, getWeekDates, getDayName, createEmptyWeek } from '../utils/storage';
 
 const SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
 const SLOT_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' };
@@ -38,12 +38,8 @@ function RecipePicker({ onPick, onCancel, recipes, suggestions }) {
           <h2>Choose a Recipe</h2>
           <button className="modal-close" onClick={onCancel}>&times;</button>
         </div>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search recipes..."
-          style={{ marginBottom: 16 }}
-        />
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search recipes..." style={{ marginBottom: 16 }} />
         {suggestions.length > 0 && !search && (
           <p style={{ fontSize: 14, color: 'var(--sage-dark)', marginBottom: 12, fontWeight: 600 }}>
             Suggested to match your macro goals:
@@ -55,16 +51,12 @@ function RecipePicker({ onPick, onCancel, recipes, suggestions }) {
           </p>
         )}
         {list.map(r => (
-          <button
-            key={r.id}
-            onClick={() => onPick(r.id)}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              width: '100%', padding: '14px 16px', background: 'var(--cream)',
-              borderRadius: 'var(--radius-sm)', marginBottom: 8, textAlign: 'left',
-              border: 'none', cursor: 'pointer',
-            }}
-          >
+          <button key={r.id} onClick={() => onPick(r.id)} style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            width: '100%', padding: '14px 16px', background: 'var(--cream)',
+            borderRadius: 'var(--radius-sm)', marginBottom: 8, textAlign: 'left',
+            border: 'none', cursor: 'pointer',
+          }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 16 }}>{r.name}</div>
               {r.macros && (
@@ -83,46 +75,61 @@ function RecipePicker({ onPick, onCancel, recipes, suggestions }) {
 
 function SwapNudge({ onSwap }) {
   return (
-    <button
-      onClick={onSwap}
-      style={{
-        background: 'var(--cream)', border: '1px dashed var(--sage-light)',
-        borderRadius: 'var(--radius-sm)', padding: '8px 12px', width: '100%',
-        fontSize: 14, color: 'var(--sage-dark)', cursor: 'pointer', marginTop: 4,
-        fontFamily: 'var(--font-display)', fontWeight: 600,
-      }}
-    >
+    <button onClick={onSwap} style={{
+      background: 'var(--cream)', border: '1px dashed var(--sage-light)',
+      borderRadius: 'var(--radius-sm)', padding: '8px 12px', width: '100%',
+      fontSize: 14, color: 'var(--sage-dark)', cursor: 'pointer', marginTop: 4,
+      fontFamily: 'var(--font-display)', fontWeight: 600,
+    }}>
       Want a swap idea?
     </button>
   );
 }
 
-export default function PlanScreen() {
+export default function PlanScreen({ userId }) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [plan, setPlan] = useState(createEmptyWeek());
+  const [recipes, setRecipes] = useState([]);
+  const [goals, setGoals] = useState({ calories: 2000, protein: 120, carbs: 200, fat: 65 });
+  const [picker, setPicker] = useState(null);
+  const [showNudge, setShowNudge] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const dragRef = useRef({ day: null, slot: null });
+
   const currentDate = new Date();
   currentDate.setDate(currentDate.getDate() + weekOffset * 7);
   const weekKey = getWeekKey(currentDate);
   const weekDates = getWeekDates(currentDate);
 
-  const [plan, setPlan] = useState(() => getWeekPlan(weekKey));
-  const [picker, setPicker] = useState(null); // { day, slot }
-  const [showNudge, setShowNudge] = useState(null); // { day, slot }
-  const recipes = getRecipes();
-  const goals = getGoals();
-  const dragRef = useRef({ day: null, slot: null });
+  const loadData = useCallback(async () => {
+    try {
+      const [p, r, g] = await Promise.all([
+        fetchWeekPlan(userId, weekKey),
+        fetchRecipes(),
+        fetchGoals(userId),
+      ]);
+      setPlan(p || createEmptyWeek());
+      setRecipes(r);
+      setGoals(g);
+    } catch (err) {
+      console.error('PlanScreen load error:', err);
+    }
+    setLoading(false);
+  }, [userId, weekKey]);
 
-  const savePlan = useCallback((newPlan) => {
+  useEffect(() => { setLoading(true); loadData(); }, [loadData]);
+
+  const savePlan = useCallback(async (newPlan) => {
     setPlan(newPlan);
-    saveWeekPlan(weekKey, newPlan);
-  }, [weekKey]);
+    try {
+      await upsertWeekPlan(userId, weekKey, newPlan);
+    } catch (err) {
+      console.error('Save plan error:', err);
+    }
+  }, [userId, weekKey]);
 
   const changeWeek = (delta) => {
-    const newOffset = weekOffset + delta;
-    setWeekOffset(newOffset);
-    const d = new Date();
-    d.setDate(d.getDate() + newOffset * 7);
-    const key = getWeekKey(d);
-    setPlan(getWeekPlan(key));
+    setWeekOffset(prev => prev + delta);
   };
 
   const assignMeal = (day, slot, recipeId) => {
@@ -130,7 +137,7 @@ export default function PlanScreen() {
     savePlan(newPlan);
     setPicker(null);
 
-    // Check if day is now off-track
+    // Check if day is off-track
     const dayMacros = { calories: 0, protein: 0, carbs: 0, fat: 0 };
     SLOTS.forEach(s => {
       const rid = newPlan[day][s];
@@ -143,10 +150,8 @@ export default function PlanScreen() {
         dayMacros.fat += r.macros.fat;
       }
     });
-
     const hasEmpty = SLOTS.some(s => !newPlan[day][s]);
-    const overCals = dayMacros.calories > goals.calories * 1.05;
-    if (overCals && hasEmpty) {
+    if (dayMacros.calories > goals.calories * 1.05 && hasEmpty) {
       setShowNudge({ day, slot });
     } else {
       setShowNudge(null);
@@ -158,7 +163,6 @@ export default function PlanScreen() {
     savePlan(newPlan);
   };
 
-  // Get swap suggestions: recipes that best close the macro gap for remaining slots
   const getSuggestions = (day) => {
     const current = { calories: 0, protein: 0, carbs: 0, fat: 0 };
     SLOTS.forEach(s => {
@@ -172,39 +176,32 @@ export default function PlanScreen() {
         current.fat += r.macros.fat;
       }
     });
-
     const remaining = {
       calories: Math.max(0, goals.calories - current.calories),
       protein: Math.max(0, goals.protein - current.protein),
       carbs: Math.max(0, goals.carbs - current.carbs),
       fat: Math.max(0, goals.fat - current.fat),
     };
-
     return recipes
       .filter(r => r.macros)
       .map(r => {
-        const calDiff = Math.abs((r.macros.calories || 0) - remaining.calories);
-        const proDiff = Math.abs((r.macros.protein || 0) - remaining.protein);
-        const carbDiff = Math.abs((r.macros.carbs || 0) - remaining.carbs);
-        const fatDiff = Math.abs((r.macros.fat || 0) - remaining.fat);
-        return { ...r, score: calDiff + proDiff * 2 + carbDiff + fatDiff };
+        const score =
+          Math.abs((r.macros.calories || 0) - remaining.calories) +
+          Math.abs((r.macros.protein || 0) - remaining.protein) * 2 +
+          Math.abs((r.macros.carbs || 0) - remaining.carbs) +
+          Math.abs((r.macros.fat || 0) - remaining.fat);
+        return { ...r, score };
       })
       .sort((a, b) => a.score - b.score)
       .slice(0, 3);
   };
 
-  // Drag and drop handlers
-  const handleDragStart = (day, slot) => {
-    dragRef.current = { day, slot };
-  };
-
+  const handleDragStart = (day, slot) => { dragRef.current = { day, slot }; };
   const handleDrop = (targetDay, targetSlot) => {
     const { day: srcDay, slot: srcSlot } = dragRef.current;
     if (!srcDay) return;
-
     const srcRecipe = plan[srcDay][srcSlot];
     const targetRecipe = plan[targetDay][targetSlot];
-
     const newPlan = {
       ...plan,
       [srcDay]: { ...plan[srcDay], [srcSlot]: targetRecipe },
@@ -214,90 +211,62 @@ export default function PlanScreen() {
     dragRef.current = { day: null, slot: null };
   };
 
-  // Auto-plan the week
   const autoPlan = () => {
-    if (recipes.length === 0) {
-      alert('Add some recipes first to auto-plan your week!');
-      return;
-    }
-
-    const newPlan = createEmptyWeek();
     const available = recipes.filter(r => r.macros);
     if (available.length === 0) {
-      alert('None of your recipes have macros. Add macros to at least a few recipes first.');
+      alert('Add some recipes with macros first to auto-plan your week!');
       return;
     }
-
+    const newPlan = createEmptyWeek();
     DAYS.forEach(day => {
       const targetPerSlot = {
         calories: goals.calories / 4,
         protein: goals.protein / 4,
-        carbs: goals.carbs / 4,
-        fat: goals.fat / 4,
       };
-
       const usedInDay = new Set();
       SLOTS.forEach(slot => {
-        // Pick recipe closest to per-slot target, not used yet today
         let best = null;
         let bestScore = Infinity;
-
         available.forEach(r => {
           if (usedInDay.has(r.id)) return;
           const score =
             Math.abs(r.macros.calories - targetPerSlot.calories) +
             Math.abs(r.macros.protein - targetPerSlot.protein) * 2;
-          if (score < bestScore) {
-            bestScore = score;
-            best = r;
-          }
+          if (score < bestScore) { bestScore = score; best = r; }
         });
-
-        if (best) {
-          newPlan[day][slot] = best.id;
-          usedInDay.add(best.id);
-        }
+        if (best) { newPlan[day][slot] = best.id; usedInDay.add(best.id); }
       });
     });
-
     savePlan(newPlan);
   };
 
   const todayName = getDayName(new Date());
 
+  if (loading) {
+    return (
+      <div className="screen-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--text-light)' }}>Loading plan...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="screen-content">
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: 16,
-      }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1>Meal Plan</h1>
-        <button className="btn btn-primary btn-sm" onClick={autoPlan}>
-          Plan My Week
-        </button>
+        <button className="btn btn-primary btn-sm" onClick={autoPlan}>Plan My Week</button>
       </div>
 
-      {/* Week navigation */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: 16, padding: '8px 0',
-      }}>
-        <button className="btn btn-secondary btn-sm" onClick={() => changeWeek(-1)}>
-          &larr; Prev
-        </button>
-        <span style={{
-          fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16,
-        }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '8px 0' }}>
+        <button className="btn btn-secondary btn-sm" onClick={() => changeWeek(-1)}>&larr; Prev</button>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16 }}>
           {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           {' – '}
           {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </span>
-        <button className="btn btn-secondary btn-sm" onClick={() => changeWeek(1)}>
-          Next &rarr;
-        </button>
+        <button className="btn btn-secondary btn-sm" onClick={() => changeWeek(1)}>Next &rarr;</button>
       </div>
 
-      {/* Weekly grid */}
       {DAYS.map((day, di) => {
         const isToday = day === todayName && weekOffset === 0;
         return (
@@ -305,10 +274,7 @@ export default function PlanScreen() {
             animationDelay: `${di * 0.03}s`,
             border: isToday ? '2px solid var(--sage)' : 'none',
           }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              marginBottom: 10,
-            }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <h3 style={{ fontSize: 18 }}>
                 {day}{' '}
                 <span style={{ fontSize: 13, color: 'var(--text-light)', fontWeight: 400 }}>
@@ -318,9 +284,7 @@ export default function PlanScreen() {
                   <span style={{
                     fontSize: 12, background: 'var(--sage)', color: 'white',
                     padding: '2px 8px', borderRadius: 8, marginLeft: 8, fontWeight: 600,
-                  }}>
-                    Today
-                  </span>
+                  }}>Today</span>
                 )}
               </h3>
             </div>
@@ -328,11 +292,8 @@ export default function PlanScreen() {
             {SLOTS.map(slot => {
               const recipeId = plan[day]?.[slot];
               const recipe = recipeId ? recipes.find(r => r.id === recipeId) : null;
-
               return (
-                <div
-                  key={slot}
-                  draggable={!!recipe}
+                <div key={slot} draggable={!!recipe}
                   onDragStart={() => handleDragStart(day, slot)}
                   onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }}
                   onDragLeave={e => e.currentTarget.classList.remove('drag-over')}
@@ -343,22 +304,15 @@ export default function PlanScreen() {
                     background: recipe ? 'var(--cream)' : 'transparent',
                     borderRadius: 'var(--radius-sm)',
                     border: recipe ? 'none' : '1px dashed var(--cream-dark)',
-                    cursor: recipe ? 'grab' : 'pointer',
-                    minHeight: 48,
+                    cursor: recipe ? 'grab' : 'pointer', minHeight: 48,
                   }}
-                  onClick={() => {
-                    if (!recipe) {
-                      setPicker({ day, slot });
-                    }
-                  }}
+                  onClick={() => { if (!recipe) setPicker({ day, slot }); }}
                 >
                   <div>
                     <span style={{
                       fontSize: 12, color: 'var(--text-light)', fontWeight: 600,
                       textTransform: 'uppercase', fontFamily: 'var(--font-display)',
-                    }}>
-                      {SLOT_LABELS[slot]}
-                    </span>
+                    }}>{SLOT_LABELS[slot]}</span>
                     {recipe ? (
                       <div style={{ fontSize: 15, fontWeight: 500, marginTop: 2 }}>
                         {recipe.name}
@@ -369,19 +323,12 @@ export default function PlanScreen() {
                         )}
                       </div>
                     ) : (
-                      <div style={{ fontSize: 14, color: 'var(--warm-gray-light)', marginTop: 2 }}>
-                        Tap to add meal
-                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--warm-gray-light)', marginTop: 2 }}>Tap to add meal</div>
                     )}
                   </div>
                   {recipe && (
-                    <button
-                      onClick={e => { e.stopPropagation(); clearSlot(day, slot); }}
-                      style={{
-                        background: 'none', border: 'none', color: 'var(--warm-gray-light)',
-                        fontSize: 18, padding: 4, cursor: 'pointer',
-                      }}
-                    >
+                    <button onClick={e => { e.stopPropagation(); clearSlot(day, slot); }}
+                      style={{ background: 'none', border: 'none', color: 'var(--warm-gray-light)', fontSize: 18, padding: 4, cursor: 'pointer' }}>
                       &times;
                     </button>
                   )}
@@ -389,27 +336,22 @@ export default function PlanScreen() {
               );
             })}
 
-            {/* Swap nudge */}
             {showNudge?.day === day && (
               <SwapNudge onSwap={() => {
                 setPicker({ day, slot: showNudge.slot, suggestions: true });
                 setShowNudge(null);
               }} />
             )}
-
             <DayMacroBar dayPlan={plan[day] || {}} recipes={recipes} goals={goals} />
           </div>
         );
       })}
 
-      {/* Recipe picker modal */}
       {picker && (
-        <RecipePicker
-          recipes={recipes}
+        <RecipePicker recipes={recipes}
           suggestions={picker.suggestions ? getSuggestions(picker.day) : []}
           onPick={(recipeId) => assignMeal(picker.day, picker.slot, recipeId)}
-          onCancel={() => setPicker(null)}
-        />
+          onCancel={() => setPicker(null)} />
       )}
     </div>
   );

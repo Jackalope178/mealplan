@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
-import { saveGoals, setOnboarded } from '../utils/storage';
+import { upsertGoals } from '../utils/db';
 
-export default function Onboarding({ onComplete }) {
+export default function Onboarding({ userId, onComplete }) {
   const [goals, setGoals] = useState({
     calories: 2000,
     protein: 120,
     carbs: 200,
     fat: 65,
   });
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    saveGoals(goals);
-    setOnboarded();
-    onComplete();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await upsertGoals(userId, goals);
+      onComplete();
+    } catch (err) {
+      alert('Could not save goals: ' + err.message);
+    }
+    setSaving(false);
   };
 
   const update = (key, val) => {
@@ -50,49 +56,28 @@ export default function Onboarding({ onComplete }) {
             type="number"
             value={goals.calories}
             onChange={e => update('calories', e.target.value)}
-            min="0"
-            step="50"
+            min="0" step="50"
             style={{ fontSize: 22, fontWeight: 600, textAlign: 'center' }}
           />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <div className="form-group">
-            <label className="form-label" style={{ textAlign: 'center' }}>
-              Protein (g)
-            </label>
-            <input
-              type="number"
-              value={goals.protein}
-              onChange={e => update('protein', e.target.value)}
-              min="0"
-              style={{ textAlign: 'center', fontWeight: 600 }}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label" style={{ textAlign: 'center' }}>
-              Carbs (g)
-            </label>
-            <input
-              type="number"
-              value={goals.carbs}
-              onChange={e => update('carbs', e.target.value)}
-              min="0"
-              style={{ textAlign: 'center', fontWeight: 600 }}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label" style={{ textAlign: 'center' }}>
-              Fat (g)
-            </label>
-            <input
-              type="number"
-              value={goals.fat}
-              onChange={e => update('fat', e.target.value)}
-              min="0"
-              style={{ textAlign: 'center', fontWeight: 600 }}
-            />
-          </div>
+          {[
+            { key: 'protein', label: 'Protein (g)' },
+            { key: 'carbs', label: 'Carbs (g)' },
+            { key: 'fat', label: 'Fat (g)' },
+          ].map(({ key, label }) => (
+            <div className="form-group" key={key}>
+              <label className="form-label" style={{ textAlign: 'center' }}>{label}</label>
+              <input
+                type="number"
+                value={goals[key]}
+                onChange={e => update(key, e.target.value)}
+                min="0"
+                style={{ textAlign: 'center', fontWeight: 600 }}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
@@ -100,8 +85,9 @@ export default function Onboarding({ onComplete }) {
         className="btn btn-primary btn-full fade-in"
         style={{ animationDelay: '0.2s', marginTop: 8, fontSize: 20 }}
         onClick={handleSave}
+        disabled={saving}
       >
-        Let's Get Started
+        {saving ? 'Saving...' : "Let's Get Started"}
       </button>
     </div>
   );

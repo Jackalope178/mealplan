@@ -1,47 +1,121 @@
-import { useState, useCallback } from 'react';
-import { isOnboarded } from './utils/storage';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from './utils/supabaseClient';
 import TabBar from './components/TabBar';
+import AuthScreen from './screens/AuthScreen';
 import Onboarding from './screens/Onboarding';
 import HomeScreen from './screens/HomeScreen';
 import RecipesScreen from './screens/RecipesScreen';
 import PlanScreen from './screens/PlanScreen';
 import LogScreen from './screens/LogScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import { fetchGoals } from './utils/db';
 
 function App() {
-  const [onboarded, setOnboarded] = useState(isOnboarded());
+  const [session, setSession] = useState(undefined); // undefined = loading, null = no auth
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
   const [showSettings, setShowSettings] = useState(false);
-  // Force re-render key when switching tabs to refresh data
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Listen to auth state
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      if (s) checkOnboarding(s.user.id);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      if (s) checkOnboarding(s.user.id);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const checkOnboarding = async (userId) => {
+    try {
+      const goals = await fetchGoals(userId);
+      // If goals are still exact defaults, user hasn't set them yet
+      if (goals.calories === 2000 && goals.protein === 120 && goals.carbs === 200 && goals.fat === 65) {
+        // Check if a row actually exists
+        const { data } = await supabase.from('goals').select('id').eq('user_id', userId).maybeSingle();
+        if (!data) {
+          setNeedsOnboarding(true);
+          return;
+        }
+      }
+      setNeedsOnboarding(false);
+    } catch {
+      setNeedsOnboarding(false);
+    }
+  };
 
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab);
     setRefreshKey(k => k + 1);
   }, []);
 
-  if (!onboarded) {
-    return <Onboarding onComplete={() => setOnboarded(true)} />;
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  };
+
+  // Loading state
+  if (session === undefined) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--cream)',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            fontSize: 48, fontFamily: 'var(--font-display)', fontWeight: 800,
+            color: 'var(--sage-dark)', marginBottom: 12,
+          }}>
+            Nourish
+          </div>
+          <p style={{ color: 'var(--text-light)' }}>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not signed in
+  if (!session) {
+    return <AuthScreen />;
+  }
+
+  const userId = session.user.id;
+  const userName = session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || '';
+
+  // Onboarding
+  if (needsOnboarding) {
+    return (
+      <Onboarding
+        userId={userId}
+        onComplete={() => setNeedsOnboarding(false)}
+      />
+    );
   }
 
   const renderScreen = () => {
     switch (activeTab) {
       case 'home':
-        return <HomeScreen key={refreshKey} onNavigate={handleTabChange} />;
+        return <HomeScreen key={refreshKey} userId={userId} userName={userName} onNavigate={handleTabChange} />;
       case 'recipes':
-        return <RecipesScreen key={refreshKey} />;
+        return <RecipesScreen key={refreshKey} userId={userId} />;
       case 'plan':
-        return <PlanScreen key={refreshKey} />;
+        return <PlanScreen key={refreshKey} userId={userId} />;
       case 'log':
-        return <LogScreen key={refreshKey} />;
+        return <LogScreen key={refreshKey} userId={userId} />;
       default:
-        return <HomeScreen key={refreshKey} onNavigate={handleTabChange} />;
+        return <HomeScreen key={refreshKey} userId={userId} userName={userName} onNavigate={handleTabChange} />;
     }
   };
 
   return (
     <div className="app-container">
-      {/* Settings gear in top right */}
+      {/* Settings gear */}
       <button
         onClick={() => setShowSettings(true)}
         style={{
@@ -62,7 +136,13 @@ function App() {
 
       {renderScreen()}
       <TabBar activeTab={activeTab} onTabChange={handleTabChange} />
-      {showSettings && <SettingsScreen onClose={() => { setShowSettings(false); setRefreshKey(k => k + 1); }} />}
+      {showSettings && (
+        <SettingsScreen
+          userId={userId}
+          onClose={() => { setShowSettings(false); setRefreshKey(k => k + 1); }}
+          onSignOut={handleSignOut}
+        />
+      )}
     </div>
   );
 }

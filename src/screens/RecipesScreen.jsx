@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { getRecipes, addRecipe, updateRecipe, deleteRecipe } from '../utils/storage';
+import React, { useState, useEffect, useCallback } from 'react';
+import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
 import { extractRecipeFromPhoto, calculateMacros } from '../utils/api';
 
 function MacroPills({ macros }) {
@@ -24,16 +24,38 @@ function SourceBadge({ source }) {
   return <span className={info.className}>{info.label}</span>;
 }
 
-function RecipeCard({ recipe, onEdit, onDelete }) {
+function HeartButton({ isFavorite, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        fontSize: 22, padding: 4, lineHeight: 1,
+        color: isFavorite ? 'var(--terracotta)' : 'var(--cream-dark)',
+        transition: 'color 0.2s, transform 0.2s',
+      }}
+    >
+      {isFavorite ? '\u2665' : '\u2661'}
+    </button>
+  );
+}
+
+function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite }) {
   const [expanded, setExpanded] = useState(false);
   const edited = new Date(recipe.lastEdited).toLocaleDateString();
+  const isMine = recipe.createdBy === userId;
+  const isFav = (recipe.favoritedBy || []).includes(userId);
 
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ flex: 1 }}>
-          <h3 style={{ marginBottom: 6 }}>{recipe.name}</h3>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h3 style={{ marginBottom: 0 }}>{recipe.name}</h3>
+            <HeartButton isFavorite={isFav} onToggle={() => onToggleFavorite(recipe.id, isFav)} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6, marginBottom: 8 }}>
             <SourceBadge source={recipe.macroSource} />
             <span style={{ fontSize: 12, color: 'var(--text-light)' }}>
               {recipe.servings} serving{recipe.servings !== 1 ? 's' : ''}
@@ -54,24 +76,21 @@ function RecipeCard({ recipe, onEdit, onDelete }) {
       <MacroPills macros={recipe.macros} />
       {recipe.notes && (
         <div style={{ marginTop: 10 }}>
-          <p style={{
-            fontSize: 14, color: 'var(--text-light)', fontStyle: 'italic',
-            cursor: 'pointer',
-          }} onClick={() => setExpanded(!expanded)}>
+          <p style={{ fontSize: 14, color: 'var(--text-light)', fontStyle: 'italic', cursor: 'pointer' }}
+            onClick={() => setExpanded(!expanded)}>
             {expanded ? recipe.notes : recipe.notes.slice(0, 80) + (recipe.notes.length > 80 ? '...' : '')}
           </p>
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 12, color: 'var(--warm-gray-light)' }}>Edited {edited}</span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => onEdit(recipe)}>
-            Edit
-          </button>
-          <button className="btn btn-sm" style={{ background: '#FAE5E2', color: 'var(--red-soft)' }} onClick={() => onDelete(recipe.id)}>
-            Delete
-          </button>
-        </div>
+        {isMine && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => onEdit(recipe)}>Edit</button>
+            <button className="btn btn-sm" style={{ background: '#FAE5E2', color: 'var(--red-soft)' }}
+              onClick={() => onDelete(recipe.id)}>Delete</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -81,7 +100,7 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
   const [form, setForm] = useState({
     name: recipe?.name || '',
     servings: recipe?.servings || 4,
-    ingredients: recipe?.ingredients || [{ quantity: '', unit: '', name: '' }],
+    ingredients: recipe?.ingredients?.length ? recipe.ingredients : [{ quantity: '', unit: '', name: '' }],
     instructions: recipe?.instructions || '',
     macros: recipe?.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
     macroSource: recipe?.macroSource || 'manual',
@@ -100,17 +119,11 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
   };
 
   const addIngredient = () => {
-    setForm(prev => ({
-      ...prev,
-      ingredients: [...prev.ingredients, { quantity: '', unit: '', name: '' }],
-    }));
+    setForm(prev => ({ ...prev, ingredients: [...prev.ingredients, { quantity: '', unit: '', name: '' }] }));
   };
 
   const removeIngredient = (idx) => {
-    setForm(prev => ({
-      ...prev,
-      ingredients: prev.ingredients.filter((_, i) => i !== idx),
-    }));
+    setForm(prev => ({ ...prev, ingredients: prev.ingredients.filter((_, i) => i !== idx) }));
   };
 
   const recalcMacros = async () => {
@@ -163,163 +176,99 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
 
         <div className="form-group">
           <label className="form-label">Recipe Name</label>
-          <input
-            value={form.name}
-            onChange={e => updateField('name', e.target.value)}
-            placeholder="What's it called?"
-          />
+          <input value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="What's it called?" />
         </div>
 
         <div className="form-group">
           <label className="form-label">Servings</label>
-          <input
-            type="number" min="1"
-            value={form.servings}
-            onChange={e => handleServingsChange(parseInt(e.target.value) || 1)}
-            style={{ width: 100 }}
-          />
+          <input type="number" min="1" value={form.servings}
+            onChange={e => handleServingsChange(parseInt(e.target.value) || 1)} style={{ width: 100 }} />
         </div>
 
         <div className="form-group">
           <label className="form-label">Ingredients</label>
           {form.ingredients.map((ing, idx) => (
             <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <input
-                placeholder="Qty"
-                value={ing.quantity}
-                onChange={e => updateIngredient(idx, 'quantity', e.target.value)}
-                style={{ width: 70 }}
-              />
-              <input
-                placeholder="Unit"
-                value={ing.unit}
-                onChange={e => updateIngredient(idx, 'unit', e.target.value)}
-                style={{ width: 80 }}
-              />
-              <input
-                placeholder="Ingredient"
-                value={ing.name}
-                onChange={e => updateIngredient(idx, 'name', e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button
-                className="modal-close"
-                style={{ width: 32, height: 32, fontSize: 16, flexShrink: 0 }}
-                onClick={() => removeIngredient(idx)}
-              >&times;</button>
+              <input placeholder="Qty" value={ing.quantity}
+                onChange={e => updateIngredient(idx, 'quantity', e.target.value)} style={{ width: 70 }} />
+              <input placeholder="Unit" value={ing.unit}
+                onChange={e => updateIngredient(idx, 'unit', e.target.value)} style={{ width: 80 }} />
+              <input placeholder="Ingredient" value={ing.name}
+                onChange={e => updateIngredient(idx, 'name', e.target.value)} style={{ flex: 1 }} />
+              <button className="modal-close" style={{ width: 32, height: 32, fontSize: 16, flexShrink: 0 }}
+                onClick={() => removeIngredient(idx)}>&times;</button>
             </div>
           ))}
-          <button className="btn btn-secondary btn-sm" onClick={addIngredient}>
-            + Add Ingredient
-          </button>
+          <button className="btn btn-secondary btn-sm" onClick={addIngredient}>+ Add Ingredient</button>
         </div>
 
         <div className="form-group">
           <label className="form-label">Instructions</label>
-          <textarea
-            value={form.instructions}
-            onChange={e => updateField('instructions', e.target.value)}
-            placeholder="How do you make it?"
-            rows={4}
-            style={{ resize: 'vertical' }}
-          />
+          <textarea value={form.instructions} onChange={e => updateField('instructions', e.target.value)}
+            placeholder="How do you make it?" rows={4} style={{ resize: 'vertical' }} />
         </div>
 
-        {/* Macro toggle */}
         <div className="form-group">
           <label className="form-label">Macros (per serving)</label>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              className={`btn btn-sm ${form.manualMacros ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={recalcMacros}
-              disabled={calcLoading}
-            >
+            <button className={`btn btn-sm ${form.manualMacros ? 'btn-secondary' : 'btn-primary'}`}
+              onClick={recalcMacros} disabled={calcLoading}>
               {calcLoading ? 'Calculating...' : 'Recalculate from ingredients'}
             </button>
-            <button
-              className={`btn btn-sm ${form.manualMacros ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setForm(prev => ({ ...prev, manualMacros: true }))}
-            >
+            <button className={`btn btn-sm ${form.manualMacros ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setForm(prev => ({ ...prev, manualMacros: true }))}>
               I'll enter these myself
             </button>
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label className="form-label" style={{ fontSize: 14 }}>Calories</label>
-              <input
-                type="number" min="0"
-                value={form.macros.calories}
-                disabled={!form.manualMacros}
-                onChange={e => setForm(prev => ({
-                  ...prev, macros: { ...prev.macros, calories: parseInt(e.target.value) || 0 },
-                }))}
-              />
-            </div>
-            <div>
-              <label className="form-label" style={{ fontSize: 14 }}>Protein (g)</label>
-              <input
-                type="number" min="0"
-                value={form.macros.protein}
-                disabled={!form.manualMacros}
-                onChange={e => setForm(prev => ({
-                  ...prev, macros: { ...prev.macros, protein: parseInt(e.target.value) || 0 },
-                }))}
-              />
-            </div>
-            <div>
-              <label className="form-label" style={{ fontSize: 14 }}>Carbs (g)</label>
-              <input
-                type="number" min="0"
-                value={form.macros.carbs}
-                disabled={!form.manualMacros}
-                onChange={e => setForm(prev => ({
-                  ...prev, macros: { ...prev.macros, carbs: parseInt(e.target.value) || 0 },
-                }))}
-              />
-            </div>
-            <div>
-              <label className="form-label" style={{ fontSize: 14 }}>Fat (g)</label>
-              <input
-                type="number" min="0"
-                value={form.macros.fat}
-                disabled={!form.manualMacros}
-                onChange={e => setForm(prev => ({
-                  ...prev, macros: { ...prev.macros, fat: parseInt(e.target.value) || 0 },
-                }))}
-              />
-            </div>
+            {[
+              { key: 'calories', label: 'Calories' },
+              { key: 'protein', label: 'Protein (g)' },
+              { key: 'carbs', label: 'Carbs (g)' },
+              { key: 'fat', label: 'Fat (g)' },
+            ].map(({ key, label }) => (
+              <div key={key}>
+                <label className="form-label" style={{ fontSize: 14 }}>{label}</label>
+                <input type="number" min="0" value={form.macros[key]} disabled={!form.manualMacros}
+                  onChange={e => setForm(prev => ({
+                    ...prev, macros: { ...prev.macros, [key]: parseInt(e.target.value) || 0 },
+                  }))} />
+              </div>
+            ))}
           </div>
         </div>
 
         <div className="form-group">
           <label className="form-label">Personal Notes</label>
-          <textarea
-            value={form.notes}
-            onChange={e => updateField('notes', e.target.value)}
-            placeholder="Any personal notes? Substitutions, tips..."
-            rows={3}
-            style={{ resize: 'vertical' }}
-          />
+          <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)}
+            placeholder="Any personal notes? Substitutions, tips..." rows={3} style={{ resize: 'vertical' }} />
         </div>
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button className="btn btn-primary btn-full" onClick={handleSave}>
-            Save Recipe
-          </button>
-        </div>
+        <button className="btn btn-primary btn-full" onClick={handleSave}>Save Recipe</button>
       </div>
     </div>
   );
 }
 
-export default function RecipesScreen() {
-  const [recipes, setRecipes] = useState(getRecipes());
-  const [editing, setEditing] = useState(null); // null | 'new' | recipe object
+export default function RecipesScreen({ userId }) {
+  const [recipes, setRecipes] = useState([]);
+  const [editing, setEditing] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all'); // 'all' | 'favorites' | 'mine'
+  const [loading, setLoading] = useState(true);
 
-  const refreshRecipes = () => setRecipes(getRecipes());
+  const loadRecipes = useCallback(async () => {
+    try {
+      const data = await fetchRecipes();
+      setRecipes(data);
+    } catch (err) {
+      console.error('Failed to load recipes:', err);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadRecipes(); }, [loadRecipes]);
 
   const handlePhotoUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -327,24 +276,16 @@ export default function RecipesScreen() {
 
     setUploading(true);
     try {
-      // Convert to base64
       const base64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result;
-          resolve(dataUrl.split(',')[1]);
-        };
+        reader.onload = () => resolve(reader.result.split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
 
-      const photoUrl = URL.createObjectURL(file);
       const mimeType = file.type || 'image/jpeg';
-
-      // Extract recipe via Claude
       const extracted = await extractRecipeFromPhoto(base64, mimeType);
 
-      // If Claude didn't find macros on card, calculate via Edamam
       let macros = extracted.macros;
       let macroSource = extracted.macroSource || 'calculated';
 
@@ -358,97 +299,118 @@ export default function RecipesScreen() {
         }
       }
 
-      const newRecipe = {
+      await insertRecipe({
         ...extracted,
         macros: macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
         macroSource,
-        photo: photoUrl,
         notes: '',
-      };
-
-      const updated = addRecipe(newRecipe);
-      setRecipes(updated);
+      }, userId);
+      await loadRecipes();
     } catch (err) {
       alert('Could not read recipe: ' + err.message);
     }
     setUploading(false);
     e.target.value = '';
-  }, []);
+  }, [userId, loadRecipes]);
 
-  const handleSaveEdit = (recipeData) => {
-    if (editing && editing !== 'new' && editing.id) {
-      updateRecipe(editing.id, recipeData);
-    } else {
-      addRecipe(recipeData);
+  const handleSaveEdit = async (recipeData) => {
+    try {
+      if (editing && editing !== 'new' && editing.id) {
+        await patchRecipe(editing.id, recipeData);
+      } else {
+        await insertRecipe(recipeData, userId);
+      }
+      await loadRecipes();
+    } catch (err) {
+      alert('Could not save: ' + err.message);
     }
-    refreshRecipes();
     setEditing(null);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (confirm('Delete this recipe?')) {
-      deleteRecipe(id);
-      refreshRecipes();
+      try {
+        await removeRecipe(id);
+        await loadRecipes();
+      } catch (err) {
+        alert('Could not delete: ' + err.message);
+      }
     }
   };
 
-  const filtered = recipes.filter(r =>
-    r.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleToggleFavorite = async (recipeId, currentlyFav) => {
+    try {
+      if (currentlyFav) {
+        await removeFavorite(userId, recipeId);
+      } else {
+        await addFavorite(userId, recipeId);
+      }
+      await loadRecipes();
+    } catch (err) {
+      console.error('Favorite toggle failed:', err);
+    }
+  };
+
+  let filtered = recipes;
+  if (filter === 'favorites') filtered = filtered.filter(r => (r.favoritedBy || []).includes(userId));
+  if (filter === 'mine') filtered = filtered.filter(r => r.createdBy === userId);
+  if (search) filtered = filtered.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
+
+  if (loading) {
+    return (
+      <div className="screen-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--text-light)' }}>Loading recipes...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="screen-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h1>My Recipes</h1>
+        <h1>Recipes</h1>
       </div>
 
-      {/* Search */}
+      {/* Filter tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[
+          { key: 'all', label: 'All' },
+          { key: 'favorites', label: 'Favorites' },
+          { key: 'mine', label: 'Mine' },
+        ].map(f => (
+          <button key={f.key}
+            className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter(f.key)}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {recipes.length > 0 && (
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search recipes..."
-          style={{ marginBottom: 16 }}
-        />
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search recipes..." style={{ marginBottom: 16 }} />
       )}
 
-      {/* Add buttons */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
         <label className="btn btn-primary btn-full" style={{ cursor: 'pointer', position: 'relative' }}>
           {uploading ? 'Reading recipe...' : 'Upload Recipe Photo'}
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handlePhotoUpload}
-            style={{ position: 'absolute', opacity: 0, inset: 0, cursor: 'pointer' }}
-            disabled={uploading}
-          />
+          <input type="file" accept="image/*" onChange={handlePhotoUpload}
+            style={{ position: 'absolute', opacity: 0, inset: 0, cursor: 'pointer' }} disabled={uploading} />
         </label>
-        <button className="btn btn-outline btn-full" onClick={() => setEditing('new')}>
-          Add Manually
-        </button>
+        <button className="btn btn-outline btn-full" onClick={() => setEditing('new')}>Add Manually</button>
       </div>
 
       {uploading && (
         <div className="card" style={{ textAlign: 'center', color: 'var(--sage-dark)' }}>
           <p>Analyzing your recipe photo...</p>
           <div className="progress-bar-track" style={{ marginTop: 12 }}>
-            <div className="progress-bar-fill" style={{
-              width: '60%', background: 'var(--sage)',
-              animation: 'pulse 1.5s infinite',
-            }} />
+            <div className="progress-bar-fill" style={{ width: '60%', background: 'var(--sage)' }} />
           </div>
         </div>
       )}
 
-      {/* Recipe list */}
       {filtered.map(recipe => (
-        <RecipeCard
-          key={recipe.id}
-          recipe={recipe}
-          onEdit={setEditing}
-          onDelete={handleDelete}
-        />
+        <RecipeCard key={recipe.id} recipe={recipe} userId={userId}
+          onEdit={setEditing} onDelete={handleDelete} onToggleFavorite={handleToggleFavorite} />
       ))}
 
       {recipes.length === 0 && !uploading && (
@@ -461,13 +423,8 @@ export default function RecipesScreen() {
         </div>
       )}
 
-      {/* Editor modal */}
       {editing !== null && (
-        <RecipeEditor
-          recipe={editing === 'new' ? null : editing}
-          onSave={handleSaveEdit}
-          onCancel={() => setEditing(null)}
-        />
+        <RecipeEditor recipe={editing === 'new' ? null : editing} onSave={handleSaveEdit} onCancel={() => setEditing(null)} />
       )}
     </div>
   );
