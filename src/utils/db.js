@@ -22,6 +22,7 @@ export async function fetchRecipes() {
     macroSource: r.macro_source,
     notes: r.notes || '',
     photo: r.photo_url,
+    tags: r.tags || [],
     lastEdited: r.last_edited,
     favoritedBy: (r.favorites || []).map(f => f.user_id),
   }));
@@ -40,6 +41,7 @@ export async function insertRecipe(recipe, userId) {
       macro_source: recipe.macroSource || 'manual',
       notes: recipe.notes || '',
       photo_url: recipe.photo || null,
+      tags: recipe.tags || [],
       last_edited: new Date().toISOString(),
     })
     .select()
@@ -58,6 +60,7 @@ export async function patchRecipe(id, updates) {
   if (updates.macroSource !== undefined) payload.macro_source = updates.macroSource;
   if (updates.notes !== undefined) payload.notes = updates.notes;
   if (updates.photo !== undefined) payload.photo_url = updates.photo;
+  if (updates.tags !== undefined) payload.tags = updates.tags;
   payload.last_edited = new Date().toISOString();
 
   const { error } = await supabase.from('recipes').update(payload).eq('id', id);

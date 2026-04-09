@@ -85,6 +85,8 @@ MACROS: First, look for any pre-printed nutrition information (calories, protein
 
 ALWAYS include macros — never return null for macros.
 
+TAGS: Add relevant tags from this list based on the main protein/category: "Chicken", "Beef", "Pork", "Fish", "Shrimp", "Turkey", "Lamb", "Tofu", "Vegetarian", "Vegan", "Pasta", "Soup", "Salad", "Breakfast", "Slow Cooker", "Quick". Pick 1-3 that best fit.
+
 Return ONLY valid JSON with no preamble, no markdown fences:
 {
   "name": "Recipe Name",
@@ -94,7 +96,8 @@ Return ONLY valid JSON with no preamble, no markdown fences:
   ],
   "instructions": "Step-by-step instructions as a single string",
   "macros": { "calories": 500, "protein": 30, "carbs": 50, "fat": 20 },
-  "macroSource": "card" or "calculated"
+  "macroSource": "card" or "calculated",
+  "tags": ["Chicken", "Quick"]
 }
 
 For ingredients, always include quantity, unit, and name. If a quantity is not clear, estimate reasonably. Return ONLY the JSON object.`,

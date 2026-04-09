@@ -1,6 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
 import { extractRecipeFromPhotos, calculateMacros } from '../utils/api';
+
+const PRESET_TAGS = [
+  'Chicken', 'Beef', 'Pork', 'Fish', 'Shrimp', 'Turkey', 'Lamb',
+  'Tofu', 'Vegetarian', 'Vegan', 'Pasta', 'Soup', 'Salad',
+  'Breakfast', 'Slow Cooker', 'Quick',
+];
 
 // Resize an image file via canvas. Returns a data URL (image/jpeg).
 function resizeImage(file, maxSize, quality = 0.8) {
@@ -32,6 +38,43 @@ async function compressForApi(file) {
   const dataUrl = await resizeImage(file, 1600, 0.75);
   // Return raw base64 without the data:image/jpeg;base64, prefix
   return dataUrl.split(',')[1];
+}
+
+function TagChips({ tags, small }) {
+  if (!tags?.length) return null;
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {tags.map(tag => (
+        <span key={tag} style={{
+          padding: small ? '2px 8px' : '4px 10px',
+          borderRadius: 12, fontSize: small ? 11 : 13,
+          fontWeight: 600, fontFamily: 'var(--font-display)',
+          background: 'var(--cream-dark)', color: 'var(--text-light)',
+        }}>{tag}</span>
+      ))}
+    </div>
+  );
+}
+
+function TagEditor({ tags, onChange }) {
+  const toggleTag = (tag) => {
+    if (tags.includes(tag)) onChange(tags.filter(t => t !== tag));
+    else onChange([...tags, tag]);
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {PRESET_TAGS.map(tag => (
+        <button key={tag} type="button" onClick={() => toggleTag(tag)} style={{
+          padding: '6px 12px', borderRadius: 16, fontSize: 14,
+          fontWeight: 600, fontFamily: 'var(--font-display)',
+          background: tags.includes(tag) ? 'var(--sage)' : 'var(--cream-dark)',
+          color: tags.includes(tag) ? 'white' : 'var(--text-light)',
+          border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+        }}>{tag}</button>
+      ))}
+    </div>
+  );
 }
 
 function MacroPills({ macros }) {
@@ -103,6 +146,11 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
             </span>
           </div>
         </div>
+
+        {/* Tags */}
+        {recipe.tags?.length > 0 && (
+          <div style={{ marginBottom: 16 }}><TagChips tags={recipe.tags} /></div>
+        )}
 
         {/* Ingredients */}
         {recipe.ingredients?.length > 0 && (
@@ -195,12 +243,8 @@ function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite, onView
         )}
       </div>
       <MacroPills macros={recipe.macros} />
-      {recipe.notes && (
-        <div style={{ marginTop: 10 }}>
-          <p style={{ fontSize: 14, color: 'var(--text-light)', fontStyle: 'italic' }}>
-            {recipe.notes.slice(0, 60)}{recipe.notes.length > 60 ? '...' : ''}
-          </p>
-        </div>
+      {recipe.tags?.length > 0 && (
+        <div style={{ marginTop: 8 }}><TagChips tags={recipe.tags} small /></div>
       )}
     </div>
   );
@@ -215,6 +259,7 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
     macros: recipe?.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
     macroSource: recipe?.macroSource || 'manual',
     notes: recipe?.notes || '',
+    tags: recipe?.tags || [],
     photo: recipe?.photo || null,
     manualMacros: recipe?.macroSource === 'manual',
   });
@@ -259,7 +304,7 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
       ingredients: form.ingredients.filter(i => i.name.trim()),
       instructions: form.instructions, macros: form.macros,
       macroSource: form.manualMacros ? 'manual' : form.macroSource,
-      notes: form.notes, photo: form.photo,
+      notes: form.notes, tags: form.tags, photo: form.photo,
     });
   };
 
@@ -320,6 +365,10 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
           </div>
         </div>
         <div className="form-group">
+          <label className="form-label">Tags</label>
+          <TagEditor tags={form.tags} onChange={tags => updateField('tags', tags)} />
+        </div>
+        <div className="form-group">
           <label className="form-label">Personal Notes</label>
           <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)}
             placeholder="Any personal notes? Substitutions, tips..." rows={3} style={{ resize: 'vertical' }} />
@@ -376,6 +425,7 @@ function PhotoUploader({ onDone, onCancel, userId }) {
         ...extracted,
         macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
         macroSource: extracted.macroSource === 'card' ? 'card' : 'calculated',
+        tags: extracted.tags || [],
         photo: thumbnail,
         notes: '',
       }, userId);
@@ -496,7 +546,8 @@ export default function RecipesScreen({ userId }) {
   const [viewing, setViewing] = useState(null);
   const [showUploader, setShowUploader] = useState(false);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('all'); // 'all' | 'favorites' | 'mine'
+  const [tagFilter, setTagFilter] = useState(null); // null or a tag string
   const [loading, setLoading] = useState(true);
 
   const loadRecipes = useCallback(async () => {
@@ -540,9 +591,17 @@ export default function RecipesScreen({ userId }) {
     } catch (err) { console.error('Favorite toggle failed:', err); }
   };
 
+  // Collect all tags in use
+  const allTags = useMemo(() => {
+    const tagSet = new Set();
+    recipes.forEach(r => (r.tags || []).forEach(t => tagSet.add(t)));
+    return Array.from(tagSet).sort();
+  }, [recipes]);
+
   let filtered = recipes;
   if (filter === 'favorites') filtered = filtered.filter(r => (r.favoritedBy || []).includes(userId));
   if (filter === 'mine') filtered = filtered.filter(r => r.createdBy === userId);
+  if (tagFilter) filtered = filtered.filter(r => (r.tags || []).includes(tagFilter));
   if (search) filtered = filtered.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
 
   if (loading) {
@@ -559,12 +618,32 @@ export default function RecipesScreen({ userId }) {
         <h1>Recipes</h1>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      {/* Filter row */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         {[{ key: 'all', label: 'All' }, { key: 'favorites', label: 'Favorites' }, { key: 'mine', label: 'Mine' }].map(f => (
-          <button key={f.key} className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setFilter(f.key)}>{f.label}</button>
+          <button key={f.key} className={`btn btn-sm ${filter === f.key && !tagFilter ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => { setFilter(f.key); setTagFilter(null); }}>{f.label}</button>
         ))}
       </div>
+
+      {/* Tag filter row */}
+      {allTags.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12,
+          overflowX: 'auto', paddingBottom: 4,
+        }}>
+          {allTags.map(tag => (
+            <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? null : tag)} style={{
+              padding: '4px 12px', borderRadius: 14, fontSize: 13,
+              fontWeight: 600, fontFamily: 'var(--font-display)',
+              background: tagFilter === tag ? 'var(--terracotta)' : 'var(--cream-dark)',
+              color: tagFilter === tag ? 'white' : 'var(--text-light)',
+              border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}>{tag}</button>
+          ))}
+        </div>
+      )}
 
       {recipes.length > 0 && (
         <input value={search} onChange={e => setSearch(e.target.value)}
