@@ -220,7 +220,7 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
                     fontSize: 17, lineHeight: 1.6, color: 'var(--text)',
                     paddingTop: 6, flex: 1,
                   }}>
-                    {cleaned}
+                    {step}
                   </p>
                 </div>
               );
