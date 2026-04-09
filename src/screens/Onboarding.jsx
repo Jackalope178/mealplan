@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { upsertGoals } from '../utils/db';
+import MacroGoalEditor from '../components/MacroGoalEditor';
 
 export default function Onboarding({ userId, onComplete }) {
   const [goals, setGoals] = useState({
     calories: 2000,
-    protein: 120,
+    protein: 150,
     carbs: 200,
-    fat: 65,
+    fat: 67,
   });
   const [saving, setSaving] = useState(false);
 
@@ -21,17 +22,13 @@ export default function Onboarding({ userId, onComplete }) {
     setSaving(false);
   };
 
-  const update = (key, val) => {
-    setGoals(prev => ({ ...prev, [key]: Math.max(0, parseInt(val) || 0) }));
-  };
-
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
       justifyContent: 'center', padding: 24, background: 'var(--cream)',
-      maxWidth: 480, margin: '0 auto',
+      maxWidth: 480, margin: '0 auto', overflowY: 'auto',
     }}>
-      <div className="fade-in" style={{ textAlign: 'center', marginBottom: 40 }}>
+      <div className="fade-in" style={{ textAlign: 'center', marginBottom: 32 }}>
         <div style={{
           fontSize: 48, marginBottom: 8, lineHeight: 1,
           fontFamily: 'var(--font-display)', fontWeight: 800,
@@ -46,39 +43,10 @@ export default function Onboarding({ userId, onComplete }) {
 
       <div className="card fade-in" style={{ animationDelay: '0.1s' }}>
         <h2 style={{ marginBottom: 4 }}>Set Your Daily Goals</h2>
-        <p style={{ color: 'var(--text-light)', fontSize: 16, marginBottom: 24 }}>
-          You can always change these later in Settings.
+        <p style={{ color: 'var(--text-light)', fontSize: 16, marginBottom: 20 }}>
+          Pick your calorie target and a macro split. You can always change these later.
         </p>
-
-        <div className="form-group">
-          <label className="form-label">Daily Calories</label>
-          <input
-            type="number"
-            value={goals.calories}
-            onChange={e => update('calories', e.target.value)}
-            min="0" step="50"
-            style={{ fontSize: 22, fontWeight: 600, textAlign: 'center' }}
-          />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          {[
-            { key: 'protein', label: 'Protein (g)' },
-            { key: 'carbs', label: 'Carbs (g)' },
-            { key: 'fat', label: 'Fat (g)' },
-          ].map(({ key, label }) => (
-            <div className="form-group" key={key}>
-              <label className="form-label" style={{ textAlign: 'center' }}>{label}</label>
-              <input
-                type="number"
-                value={goals[key]}
-                onChange={e => update(key, e.target.value)}
-                min="0"
-                style={{ textAlign: 'center', fontWeight: 600 }}
-              />
-            </div>
-          ))}
-        </div>
+        <MacroGoalEditor goals={goals} onChange={setGoals} />
       </div>
 
       <button
