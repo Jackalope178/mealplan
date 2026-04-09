@@ -2,32 +2,36 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
 import { extractRecipeFromPhoto, calculateMacros } from '../utils/api';
 
-// Compress an image file to a smaller data URL for thumbnail storage
-function compressImage(file, maxSize = 400) {
+// Resize an image file via canvas. Returns a data URL (image/jpeg).
+function resizeImage(file, maxSize, quality = 0.8) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
       let w = img.width, h = img.height;
-      if (w > h) { h = (maxSize / w) * h; w = maxSize; }
-      else { w = (maxSize / h) * w; h = maxSize; }
+      if (w > maxSize || h > maxSize) {
+        if (w > h) { h = (maxSize / w) * h; w = maxSize; }
+        else { w = (maxSize / h) * w; h = maxSize; }
+      }
       canvas.width = w;
       canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', 0.7));
+      resolve(canvas.toDataURL('image/jpeg', quality));
     };
     img.src = URL.createObjectURL(file);
   });
 }
 
-// Read file to base64 (raw, no data URL prefix)
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+// Compress for thumbnail storage (small)
+function compressImage(file) {
+  return resizeImage(file, 400, 0.7);
+}
+
+// Compress for Claude API (under 5MB base64 ≈ ~3.7MB file ≈ 1600px max)
+async function compressForApi(file) {
+  const dataUrl = await resizeImage(file, 1600, 0.75);
+  // Return raw base64 without the data:image/jpeg;base64, prefix
+  return dataUrl.split(',')[1];
 }
 
 function MacroPills({ macros }) {
@@ -255,8 +259,8 @@ function PhotoUploader({ onDone, onCancel, userId }) {
     const newPhotos = await Promise.all(files.map(async (file) => ({
       file,
       preview: URL.createObjectURL(file),
-      base64: await fileToBase64(file),
-      mimeType: file.type || 'image/jpeg',
+      base64: await compressForApi(file),
+      mimeType: 'image/jpeg',
     })));
 
     setPhotos(prev => [...prev, ...newPhotos]);
