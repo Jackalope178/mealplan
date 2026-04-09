@@ -45,8 +45,9 @@
 
 html, body, #root {
   height: 100%;
-  overflow: hidden;
 }
+
+/* Only the app-container manages its own overflow via .screen-content */
 
 body {
   font-family: var(--font-body);
