@@ -252,7 +252,32 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
   const saveIngredients = async () => {
     setSaving(true);
     try {
-      await onSave(recipe.id, { ingredients: ingredients.filter(i => i.name.trim()) });
+      const cleaned = ingredients.filter(i => i.name.trim());
+
+      // Recalculate recipe macros from ingredient macros if any have them
+      const withMacros = cleaned.filter(i => i.macros);
+      let updates = { ingredients: cleaned };
+
+      if (withMacros.length > 0) {
+        const total = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+        withMacros.forEach(i => {
+          total.calories += i.macros.calories || 0;
+          total.protein += i.macros.protein || 0;
+          total.carbs += i.macros.carbs || 0;
+          total.fat += i.macros.fat || 0;
+        });
+        // Per serving
+        const servings = recipe.servings || 1;
+        updates.macros = {
+          calories: Math.round(total.calories / servings),
+          protein: Math.round(total.protein / servings),
+          carbs: Math.round(total.carbs / servings),
+          fat: Math.round(total.fat / servings),
+        };
+        updates.macroSource = 'manual';
+      }
+
+      await onSave(recipe.id, updates);
       setEditingIngredients(false);
     } catch (err) { alert('Could not save: ' + err.message); }
     setSaving(false);
