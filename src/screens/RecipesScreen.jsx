@@ -179,19 +179,29 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
         {recipe.instructions && (
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ marginBottom: 14, color: 'var(--sage-dark)' }}>How to Make It</h3>
-            {(recipe.instructions
-              // Split on newlines OR inline numbered steps like "2. " "Step 3:"
-              .split(/\n+/)
-              .flatMap(line => {
-                // Further split lines that have inline step numbers like "... 2. Next step"
-                const parts = line.split(/(?<=\.)\s+(?=\d+\.\s)/);
-                if (parts.length > 1) return parts;
-                // Also try splitting on "N. " patterns at the start or mid-sentence
-                return line.split(/\s+(?=\d+\.\s)/);
-              })
-              .map(s => s.replace(/^(step\s*)?\d+[.:)\-]\s*/i, '').trim())
-              .filter(s => s.length > 0)
-            ).map((step, i) => {
+            {(() => {
+              // Parse steps: split on newlines, then on inline "N. " patterns
+              const text = recipe.instructions || '';
+              const steps = [];
+              text.split('\n').forEach(line => {
+                // Split on patterns like " 2. " or " 3. " mid-sentence
+                const parts = line.split(/\s+(\d+\.\s)/);
+                let buffer = '';
+                for (let i = 0; i < parts.length; i++) {
+                  const p = parts[i];
+                  if (/^\d+\.\s$/.test(p)) {
+                    if (buffer.trim()) steps.push(buffer.trim());
+                    buffer = '';
+                  } else {
+                    buffer += p;
+                  }
+                }
+                if (buffer.trim()) steps.push(buffer.trim());
+              });
+              return steps
+                .map(s => s.replace(/^(step\s*)?\d+[.:)\-]\s*/i, '').trim())
+                .filter(s => s.length > 0);
+            })().map((step, i) => {
               return (
                 <div key={i} style={{
                   display: 'flex', gap: 14, marginBottom: 16,
