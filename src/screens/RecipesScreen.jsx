@@ -17,7 +17,8 @@ function MacroPills({ macros }) {
 function SourceBadge({ source }) {
   const map = {
     card: { className: 'badge badge-card', label: 'Macros from card' },
-    calculated: { className: 'badge badge-calc', label: 'Calculated from ingredients' },
+    calculated: { className: 'badge badge-calc', label: 'Estimated from ingredients' },
+    estimated: { className: 'badge badge-calc', label: 'Estimated from ingredients' },
     manual: { className: 'badge badge-manual', label: 'My numbers' },
   };
   const info = map[source] || map.manual;
@@ -286,23 +287,10 @@ export default function RecipesScreen({ userId }) {
       const mimeType = file.type || 'image/jpeg';
       const extracted = await extractRecipeFromPhoto(base64, mimeType);
 
-      let macros = extracted.macros;
-      let macroSource = extracted.macroSource || 'calculated';
-
-      if (!macros && extracted.ingredients?.length) {
-        try {
-          macros = await calculateMacros(extracted.ingredients, extracted.servings || 1);
-          macroSource = 'calculated';
-        } catch {
-          macros = { calories: 0, protein: 0, carbs: 0, fat: 0 };
-          macroSource = 'manual';
-        }
-      }
-
       await insertRecipe({
         ...extracted,
-        macros: macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
-        macroSource,
+        macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        macroSource: extracted.macroSource || 'estimated',
         notes: '',
       }, userId);
       await loadRecipes();
