@@ -2,6 +2,34 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
 import { extractRecipeFromPhoto, calculateMacros } from '../utils/api';
 
+// Compress an image file to a smaller data URL for thumbnail storage
+function compressImage(file, maxSize = 400) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      if (w > h) { h = (maxSize / w) * h; w = maxSize; }
+      else { w = (maxSize / h) * w; h = maxSize; }
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Read file to base64 (raw, no data URL prefix)
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function MacroPills({ macros }) {
   if (!macros) return null;
   return (
@@ -27,16 +55,14 @@ function SourceBadge({ source }) {
 
 function HeartButton({ isFavorite, onToggle }) {
   return (
-    <button
-      onClick={onToggle}
+    <button onClick={onToggle}
       title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
       style={{
         background: 'none', border: 'none', cursor: 'pointer',
         fontSize: 22, padding: 4, lineHeight: 1,
         color: isFavorite ? 'var(--terracotta)' : 'var(--cream-dark)',
         transition: 'color 0.2s, transform 0.2s',
-      }}
-    >
+      }}>
       {isFavorite ? '\u2665' : '\u2661'}
     </button>
   );
@@ -64,14 +90,8 @@ function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite }) {
           </div>
         </div>
         {recipe.photo && (
-          <img
-            src={recipe.photo}
-            alt={recipe.name}
-            style={{
-              width: 60, height: 60, borderRadius: 'var(--radius-sm)',
-              objectFit: 'cover', marginLeft: 12,
-            }}
-          />
+          <img src={recipe.photo} alt={recipe.name}
+            style={{ width: 60, height: 60, borderRadius: 'var(--radius-sm)', objectFit: 'cover', marginLeft: 12 }} />
         )}
       </div>
       <MacroPills macros={recipe.macros} />
@@ -112,35 +132,25 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
   const [calcLoading, setCalcLoading] = useState(false);
 
   const updateField = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
-
   const updateIngredient = (idx, field, val) => {
     const ingredients = [...form.ingredients];
     ingredients[idx] = { ...ingredients[idx], [field]: val };
     setForm(prev => ({ ...prev, ingredients }));
   };
-
-  const addIngredient = () => {
-    setForm(prev => ({ ...prev, ingredients: [...prev.ingredients, { quantity: '', unit: '', name: '' }] }));
-  };
-
-  const removeIngredient = (idx) => {
-    setForm(prev => ({ ...prev, ingredients: prev.ingredients.filter((_, i) => i !== idx) }));
-  };
+  const addIngredient = () => setForm(prev => ({ ...prev, ingredients: [...prev.ingredients, { quantity: '', unit: '', name: '' }] }));
+  const removeIngredient = (idx) => setForm(prev => ({ ...prev, ingredients: prev.ingredients.filter((_, i) => i !== idx) }));
 
   const recalcMacros = async () => {
     setCalcLoading(true);
     try {
       const macros = await calculateMacros(form.ingredients, form.servings);
-      setForm(prev => ({ ...prev, macros, macroSource: 'calculated', manualMacros: false }));
-    } catch (err) {
-      alert('Could not calculate macros: ' + err.message);
-    }
+      setForm(prev => ({ ...prev, macros, macroSource: 'estimated', manualMacros: false }));
+    } catch (err) { alert('Could not calculate macros: ' + err.message); }
     setCalcLoading(false);
   };
 
   const handleServingsChange = (newServings) => {
-    const oldServings = form.servings || 1;
-    const ratio = oldServings / newServings;
+    const ratio = (form.servings || 1) / newServings;
     if (form.macros && !form.manualMacros) {
       const macros = {
         calories: Math.round(form.macros.calories * ratio),
@@ -156,14 +166,11 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
 
   const handleSave = () => {
     onSave({
-      name: form.name,
-      servings: form.servings,
+      name: form.name, servings: form.servings,
       ingredients: form.ingredients.filter(i => i.name.trim()),
-      instructions: form.instructions,
-      macros: form.macros,
+      instructions: form.instructions, macros: form.macros,
       macroSource: form.manualMacros ? 'manual' : form.macroSource,
-      notes: form.notes,
-      photo: form.photo,
+      notes: form.notes, photo: form.photo,
     });
   };
 
@@ -174,41 +181,32 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
           <h2>{recipe ? 'Edit Recipe' : 'New Recipe'}</h2>
           <button className="modal-close" onClick={onCancel}>&times;</button>
         </div>
-
         <div className="form-group">
           <label className="form-label">Recipe Name</label>
           <input value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="What's it called?" />
         </div>
-
         <div className="form-group">
           <label className="form-label">Servings</label>
           <input type="number" min="1" value={form.servings}
             onChange={e => handleServingsChange(parseInt(e.target.value) || 1)} style={{ width: 100 }} />
         </div>
-
         <div className="form-group">
           <label className="form-label">Ingredients</label>
           {form.ingredients.map((ing, idx) => (
             <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <input placeholder="Qty" value={ing.quantity}
-                onChange={e => updateIngredient(idx, 'quantity', e.target.value)} style={{ width: 70 }} />
-              <input placeholder="Unit" value={ing.unit}
-                onChange={e => updateIngredient(idx, 'unit', e.target.value)} style={{ width: 80 }} />
-              <input placeholder="Ingredient" value={ing.name}
-                onChange={e => updateIngredient(idx, 'name', e.target.value)} style={{ flex: 1 }} />
-              <button className="modal-close" style={{ width: 32, height: 32, fontSize: 16, flexShrink: 0 }}
-                onClick={() => removeIngredient(idx)}>&times;</button>
+              <input placeholder="Qty" value={ing.quantity} onChange={e => updateIngredient(idx, 'quantity', e.target.value)} style={{ width: 70 }} />
+              <input placeholder="Unit" value={ing.unit} onChange={e => updateIngredient(idx, 'unit', e.target.value)} style={{ width: 80 }} />
+              <input placeholder="Ingredient" value={ing.name} onChange={e => updateIngredient(idx, 'name', e.target.value)} style={{ flex: 1 }} />
+              <button className="modal-close" style={{ width: 32, height: 32, fontSize: 16, flexShrink: 0 }} onClick={() => removeIngredient(idx)}>&times;</button>
             </div>
           ))}
           <button className="btn btn-secondary btn-sm" onClick={addIngredient}>+ Add Ingredient</button>
         </div>
-
         <div className="form-group">
           <label className="form-label">Instructions</label>
           <textarea value={form.instructions} onChange={e => updateField('instructions', e.target.value)}
             placeholder="How do you make it?" rows={4} style={{ resize: 'vertical' }} />
         </div>
-
         <div className="form-group">
           <label className="form-label">Macros (per serving)</label>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -222,30 +220,191 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
             </button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {[
-              { key: 'calories', label: 'Calories' },
-              { key: 'protein', label: 'Protein (g)' },
-              { key: 'carbs', label: 'Carbs (g)' },
-              { key: 'fat', label: 'Fat (g)' },
-            ].map(({ key, label }) => (
+            {[{ key: 'calories', label: 'Calories' }, { key: 'protein', label: 'Protein (g)' },
+              { key: 'carbs', label: 'Carbs (g)' }, { key: 'fat', label: 'Fat (g)' }].map(({ key, label }) => (
               <div key={key}>
                 <label className="form-label" style={{ fontSize: 14 }}>{label}</label>
                 <input type="number" min="0" value={form.macros[key]} disabled={!form.manualMacros}
-                  onChange={e => setForm(prev => ({
-                    ...prev, macros: { ...prev.macros, [key]: parseInt(e.target.value) || 0 },
-                  }))} />
+                  onChange={e => setForm(prev => ({ ...prev, macros: { ...prev.macros, [key]: parseInt(e.target.value) || 0 } }))} />
               </div>
             ))}
           </div>
         </div>
-
         <div className="form-group">
           <label className="form-label">Personal Notes</label>
           <textarea value={form.notes} onChange={e => updateField('notes', e.target.value)}
             placeholder="Any personal notes? Substitutions, tips..." rows={3} style={{ resize: 'vertical' }} />
         </div>
-
         <button className="btn btn-primary btn-full" onClick={handleSave}>Save Recipe</button>
+      </div>
+    </div>
+  );
+}
+
+// Multi-photo upload modal
+function PhotoUploader({ onDone, onCancel, userId }) {
+  const [photos, setPhotos] = useState([]); // [{ file, preview, base64, mimeType }]
+  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0, name: '' });
+  const [results, setResults] = useState([]); // [{ success, name, error? }]
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const newPhotos = await Promise.all(files.map(async (file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      base64: await fileToBase64(file),
+      mimeType: file.type || 'image/jpeg',
+    })));
+
+    setPhotos(prev => [...prev, ...newPhotos]);
+    e.target.value = '';
+  };
+
+  const removePhoto = (idx) => {
+    setPhotos(prev => {
+      const removed = prev[idx];
+      URL.revokeObjectURL(removed.preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (photos.length === 0) return;
+    setProcessing(true);
+    setResults([]);
+    setProgress({ current: 0, total: photos.length, name: '' });
+
+    const allResults = [];
+
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i];
+      setProgress({ current: i + 1, total: photos.length, name: `Photo ${i + 1} of ${photos.length}` });
+
+      try {
+        const extracted = await extractRecipeFromPhoto(photo.base64, photo.mimeType);
+
+        // Compress the photo for the recipe card thumbnail
+        const thumbnail = await compressImage(photo.file, 400);
+
+        await insertRecipe({
+          ...extracted,
+          macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+          macroSource: extracted.macroSource || 'estimated',
+          photo: thumbnail,
+          notes: '',
+        }, userId);
+
+        allResults.push({ success: true, name: extracted.name || `Recipe ${i + 1}` });
+      } catch (err) {
+        allResults.push({ success: false, name: `Photo ${i + 1}`, error: err.message });
+      }
+    }
+
+    setResults(allResults);
+    setProcessing(false);
+  };
+
+  const allDone = results.length > 0;
+  const successCount = results.filter(r => r.success).length;
+
+  return (
+    <div className="modal-overlay" onClick={!processing ? onCancel : undefined}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{allDone ? 'All Done!' : 'Upload Recipe Photos'}</h2>
+          {!processing && <button className="modal-close" onClick={onCancel}>&times;</button>}
+        </div>
+
+        {/* Results screen */}
+        {allDone && (
+          <div>
+            <p style={{ fontSize: 16, color: 'var(--sage-dark)', fontWeight: 600, marginBottom: 16 }}>
+              {successCount} recipe{successCount !== 1 ? 's' : ''} added!
+            </p>
+            {results.map((r, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 12px', background: r.success ? '#E8F0E8' : '#FAE5E2',
+                borderRadius: 'var(--radius-sm)', marginBottom: 6,
+              }}>
+                <span style={{ fontSize: 18 }}>{r.success ? '\u2713' : '\u2717'}</span>
+                <span style={{ fontSize: 15, fontWeight: 500 }}>{r.name}</span>
+                {r.error && <span style={{ fontSize: 13, color: 'var(--red-soft)' }}>— {r.error}</span>}
+              </div>
+            ))}
+            <button className="btn btn-primary btn-full" style={{ marginTop: 16 }}
+              onClick={() => { onDone(); }}>
+              Done
+            </button>
+          </div>
+        )}
+
+        {/* Processing screen */}
+        {processing && !allDone && (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--sage-dark)', marginBottom: 8 }}>
+              Reading {progress.name}...
+            </p>
+            <div className="progress-bar-track" style={{ marginBottom: 8 }}>
+              <div className="progress-bar-fill" style={{
+                width: `${(progress.current / progress.total) * 100}%`,
+                background: 'var(--sage)',
+              }} />
+            </div>
+            <p style={{ fontSize: 14, color: 'var(--text-light)' }}>
+              This may take a moment per photo.
+            </p>
+          </div>
+        )}
+
+        {/* Selection screen */}
+        {!processing && !allDone && (
+          <>
+            <p style={{ fontSize: 15, color: 'var(--text-light)', marginBottom: 16 }}>
+              Add photos of recipe cards, cookbook pages, or HelloFresh cards. Then tap Submit to read them all.
+            </p>
+
+            {/* Photo grid */}
+            {photos.length > 0 && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16,
+              }}>
+                {photos.map((p, idx) => (
+                  <div key={idx} style={{ position: 'relative' }}>
+                    <img src={p.preview} alt={`Photo ${idx + 1}`} style={{
+                      width: '100%', aspectRatio: '1', objectFit: 'cover',
+                      borderRadius: 'var(--radius-sm)',
+                    }} />
+                    <button onClick={() => removePhoto(idx)} style={{
+                      position: 'absolute', top: 4, right: 4,
+                      width: 26, height: 26, borderRadius: '50%',
+                      background: 'rgba(0,0,0,0.5)', color: 'white',
+                      border: 'none', fontSize: 14, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>&times;</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add more photos */}
+            <label className="btn btn-secondary btn-full" style={{ cursor: 'pointer', position: 'relative', marginBottom: 12 }}>
+              {photos.length === 0 ? 'Choose Photos' : '+ Add More Photos'}
+              <input type="file" accept="image/*" multiple onChange={handleFiles}
+                style={{ position: 'absolute', opacity: 0, inset: 0, cursor: 'pointer' }} />
+            </label>
+
+            {/* Submit */}
+            {photos.length > 0 && (
+              <button className="btn btn-primary btn-full" onClick={handleSubmit} style={{ fontSize: 18 }}>
+                Submit {photos.length} Photo{photos.length !== 1 ? 's' : ''}
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -254,9 +413,9 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
 export default function RecipesScreen({ userId }) {
   const [recipes, setRecipes] = useState([]);
   const [editing, setEditing] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [showUploader, setShowUploader] = useState(false);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all'); // 'all' | 'favorites' | 'mine'
+  const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
 
   const loadRecipes = useCallback(async () => {
@@ -270,36 +429,6 @@ export default function RecipesScreen({ userId }) {
   }, []);
 
   useEffect(() => { loadRecipes(); }, [loadRecipes]);
-
-  const handlePhotoUpload = useCallback(async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const mimeType = file.type || 'image/jpeg';
-      const extracted = await extractRecipeFromPhoto(base64, mimeType);
-
-      await insertRecipe({
-        ...extracted,
-        macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
-        macroSource: extracted.macroSource || 'estimated',
-        notes: '',
-      }, userId);
-      await loadRecipes();
-    } catch (err) {
-      alert('Could not read recipe: ' + err.message);
-    }
-    setUploading(false);
-    e.target.value = '';
-  }, [userId, loadRecipes]);
 
   const handleSaveEdit = async (recipeData) => {
     try {
@@ -317,26 +446,17 @@ export default function RecipesScreen({ userId }) {
 
   const handleDelete = async (id) => {
     if (confirm('Delete this recipe?')) {
-      try {
-        await removeRecipe(id);
-        await loadRecipes();
-      } catch (err) {
-        alert('Could not delete: ' + err.message);
-      }
+      try { await removeRecipe(id); await loadRecipes(); }
+      catch (err) { alert('Could not delete: ' + err.message); }
     }
   };
 
   const handleToggleFavorite = async (recipeId, currentlyFav) => {
     try {
-      if (currentlyFav) {
-        await removeFavorite(userId, recipeId);
-      } else {
-        await addFavorite(userId, recipeId);
-      }
+      if (currentlyFav) await removeFavorite(userId, recipeId);
+      else await addFavorite(userId, recipeId);
       await loadRecipes();
-    } catch (err) {
-      console.error('Favorite toggle failed:', err);
-    }
+    } catch (err) { console.error('Favorite toggle failed:', err); }
   };
 
   let filtered = recipes;
@@ -358,18 +478,10 @@ export default function RecipesScreen({ userId }) {
         <h1>Recipes</h1>
       </div>
 
-      {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {[
-          { key: 'all', label: 'All' },
-          { key: 'favorites', label: 'Favorites' },
-          { key: 'mine', label: 'Mine' },
-        ].map(f => (
-          <button key={f.key}
-            className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setFilter(f.key)}>
-            {f.label}
-          </button>
+        {[{ key: 'all', label: 'All' }, { key: 'favorites', label: 'Favorites' }, { key: 'mine', label: 'Mine' }].map(f => (
+          <button key={f.key} className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter(f.key)}>{f.label}</button>
         ))}
       </div>
 
@@ -379,36 +491,33 @@ export default function RecipesScreen({ userId }) {
       )}
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-        <label className="btn btn-primary btn-full" style={{ cursor: 'pointer', position: 'relative' }}>
-          {uploading ? 'Reading recipe...' : 'Upload Recipe Photo'}
-          <input type="file" accept="image/*" onChange={handlePhotoUpload}
-            style={{ position: 'absolute', opacity: 0, inset: 0, cursor: 'pointer' }} disabled={uploading} />
-        </label>
-        <button className="btn btn-outline btn-full" onClick={() => setEditing('new')}>Add Manually</button>
+        <button className="btn btn-primary btn-full" onClick={() => setShowUploader(true)}>
+          Upload Recipe Photos
+        </button>
+        <button className="btn btn-outline btn-full" onClick={() => setEditing('new')}>
+          Add Manually
+        </button>
       </div>
-
-      {uploading && (
-        <div className="card" style={{ textAlign: 'center', color: 'var(--sage-dark)' }}>
-          <p>Analyzing your recipe photo...</p>
-          <div className="progress-bar-track" style={{ marginTop: 12 }}>
-            <div className="progress-bar-fill" style={{ width: '60%', background: 'var(--sage)' }} />
-          </div>
-        </div>
-      )}
 
       {filtered.map(recipe => (
         <RecipeCard key={recipe.id} recipe={recipe} userId={userId}
           onEdit={setEditing} onDelete={handleDelete} onToggleFavorite={handleToggleFavorite} />
       ))}
 
-      {recipes.length === 0 && !uploading && (
+      {recipes.length === 0 && (
         <div className="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
           </svg>
-          <p>No recipes yet. Upload a photo or add one manually to get started!</p>
+          <p>No recipes yet. Upload photos or add one manually to get started!</p>
         </div>
+      )}
+
+      {showUploader && (
+        <PhotoUploader userId={userId}
+          onDone={() => { setShowUploader(false); loadRecipes(); }}
+          onCancel={() => setShowUploader(false)} />
       )}
 
       {editing !== null && (
