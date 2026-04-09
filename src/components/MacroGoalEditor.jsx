@@ -7,7 +7,7 @@ const CAL_PER_G = { protein: 4, carbs: 4, fat: 9 };
 const PRESETS = [
   { id: 'balanced', name: 'Balanced', desc: 'General health', protein: 25, carbs: 50, fat: 25 },
   { id: 'zone', name: 'Zone', desc: 'Anti-inflammatory', protein: 30, carbs: 40, fat: 30 },
-  { id: 'highProtein', name: 'High Protein', desc: 'Muscle building', protein: 40, carbs: 25, fat: 35 },
+  { id: 'highProtein', name: 'High Protein', desc: 'Muscle building', protein: 40, carbs: 30, fat: 30 },
   { id: 'lowCarb', name: 'Low Carb', desc: 'Fewer carbs, more fat', protein: 40, carbs: 20, fat: 40 },
   { id: 'keto', name: 'Keto', desc: 'Very low carb', protein: 25, carbs: 5, fat: 70 },
 ];
