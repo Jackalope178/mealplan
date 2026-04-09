@@ -72,19 +72,115 @@ function HeartButton({ isFavorite, onToggle }) {
   );
 }
 
-function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite }) {
-  const [expanded, setExpanded] = useState(false);
-  const edited = new Date(recipe.lastEdited).toLocaleDateString();
+function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavorite }) {
   const isMine = recipe.createdBy === userId;
   const isFav = (recipe.favoritedBy || []).includes(userId);
 
   return (
-    <div className="card">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 style={{ flex: 1, paddingRight: 8 }}>{recipe.name}</h2>
+          <HeartButton isFavorite={isFav} onToggle={() => onToggleFavorite(recipe.id, isFav)} />
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+
+        {/* Photo */}
+        {recipe.photo && (
+          <img src={recipe.photo} alt={recipe.name} style={{
+            width: '100%', maxHeight: 240, objectFit: 'cover',
+            borderRadius: 'var(--radius-sm)', marginBottom: 16,
+          }} />
+        )}
+
+        {/* Macros + badge */}
+        <div style={{ marginBottom: 16 }}>
+          <MacroPills macros={recipe.macros} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+            <SourceBadge source={recipe.macroSource} />
+            <span style={{ fontSize: 14, color: 'var(--text-light)' }}>
+              {recipe.servings} serving{recipe.servings !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+
+        {/* Ingredients */}
+        {recipe.ingredients?.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <h3 style={{ marginBottom: 10, color: 'var(--sage-dark)' }}>Ingredients</h3>
+            {recipe.ingredients.map((ing, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'baseline', gap: 8,
+                padding: '8px 0',
+                borderBottom: i < recipe.ingredients.length - 1 ? '1px solid var(--cream-dark)' : 'none',
+              }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%', background: 'var(--sage-light)',
+                  flexShrink: 0, marginTop: 6,
+                }} />
+                <span style={{ fontSize: 16 }}>
+                  {ing.quantity && <strong>{ing.quantity} {ing.unit}</strong>}
+                  {ing.quantity ? ' ' : ''}{ing.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Instructions */}
+        {recipe.instructions && (
+          <div style={{ marginBottom: 20 }}>
+            <h3 style={{ marginBottom: 10, color: 'var(--sage-dark)' }}>How to Make It</h3>
+            <div style={{
+              fontSize: 16, lineHeight: 1.7, color: 'var(--text)',
+              whiteSpace: 'pre-wrap',
+            }}>
+              {recipe.instructions}
+            </div>
+          </div>
+        )}
+
+        {/* Notes */}
+        {recipe.notes && (
+          <div style={{ marginBottom: 20 }}>
+            <h3 style={{ marginBottom: 8, color: 'var(--terracotta)' }}>My Notes</h3>
+            <p style={{
+              fontSize: 15, color: 'var(--text-light)', fontStyle: 'italic',
+              background: 'var(--cream)', padding: '12px 14px',
+              borderRadius: 'var(--radius-sm)', lineHeight: 1.5,
+            }}>
+              {recipe.notes}
+            </p>
+          </div>
+        )}
+
+        {/* Actions */}
+        {isMine && (
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <button className="btn btn-primary btn-full" onClick={() => { onClose(); onEdit(recipe); }}>
+              Edit Recipe
+            </button>
+            <button className="btn btn-full" style={{ background: '#FAE5E2', color: 'var(--red-soft)' }}
+              onClick={() => { onClose(); onDelete(recipe.id); }}>
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite, onView }) {
+  const isFav = (recipe.favoritedBy || []).includes(userId);
+
+  return (
+    <div className="card" onClick={() => onView(recipe)} style={{ cursor: 'pointer' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h3 style={{ marginBottom: 0 }}>{recipe.name}</h3>
-            <HeartButton isFavorite={isFav} onToggle={() => onToggleFavorite(recipe.id, isFav)} />
+            <HeartButton isFavorite={isFav} onToggle={(e) => { onToggleFavorite(recipe.id, isFav); }} />
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6, marginBottom: 8 }}>
             <SourceBadge source={recipe.macroSource} />
@@ -101,22 +197,11 @@ function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite }) {
       <MacroPills macros={recipe.macros} />
       {recipe.notes && (
         <div style={{ marginTop: 10 }}>
-          <p style={{ fontSize: 14, color: 'var(--text-light)', fontStyle: 'italic', cursor: 'pointer' }}
-            onClick={() => setExpanded(!expanded)}>
-            {expanded ? recipe.notes : recipe.notes.slice(0, 80) + (recipe.notes.length > 80 ? '...' : '')}
+          <p style={{ fontSize: 14, color: 'var(--text-light)', fontStyle: 'italic' }}>
+            {recipe.notes.slice(0, 60)}{recipe.notes.length > 60 ? '...' : ''}
           </p>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--warm-gray-light)' }}>Edited {edited}</span>
-        {isMine && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => onEdit(recipe)}>Edit</button>
-            <button className="btn btn-sm" style={{ background: '#FAE5E2', color: 'var(--red-soft)' }}
-              onClick={() => onDelete(recipe.id)}>Delete</button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -408,6 +493,7 @@ function PhotoUploader({ onDone, onCancel, userId }) {
 export default function RecipesScreen({ userId }) {
   const [recipes, setRecipes] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
   const [showUploader, setShowUploader] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -496,7 +582,8 @@ export default function RecipesScreen({ userId }) {
 
       {filtered.map(recipe => (
         <RecipeCard key={recipe.id} recipe={recipe} userId={userId}
-          onEdit={setEditing} onDelete={handleDelete} onToggleFavorite={handleToggleFavorite} />
+          onView={setViewing} onEdit={setEditing} onDelete={handleDelete}
+          onToggleFavorite={handleToggleFavorite} />
       ))}
 
       {recipes.length === 0 && (
@@ -507,6 +594,14 @@ export default function RecipesScreen({ userId }) {
           </svg>
           <p>No recipes yet. Upload photos or add one manually to get started!</p>
         </div>
+      )}
+
+      {viewing && (
+        <RecipeDetail recipe={viewing} userId={userId}
+          onClose={() => setViewing(null)}
+          onEdit={(r) => { setViewing(null); setEditing(r); }}
+          onDelete={(id) => { setViewing(null); handleDelete(id); }}
+          onToggleFavorite={handleToggleFavorite} />
       )}
 
       {showUploader && (
