@@ -39,7 +39,7 @@ async function callClaude(apiKey, messages) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages,
     }),
   });
@@ -90,7 +90,7 @@ Return ONLY valid JSON with no preamble, no markdown fences:
   ],
   "instructions": "Step-by-step instructions as a single string",
   "macros": { "calories": 500, "protein": 30, "carbs": 50, "fat": 20 },
-  "macroSource": "card" or "estimated"
+  "macroSource": "card" or "calculated"
 }
 
 For ingredients, always include quantity, unit, and name. If a quantity is not clear, estimate reasonably. Return ONLY the JSON object.`,

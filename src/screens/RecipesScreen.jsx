@@ -144,7 +144,7 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
     setCalcLoading(true);
     try {
       const macros = await calculateMacros(form.ingredients, form.servings);
-      setForm(prev => ({ ...prev, macros, macroSource: 'estimated', manualMacros: false }));
+      setForm(prev => ({ ...prev, macros, macroSource: 'calculated', manualMacros: false }));
     } catch (err) { alert('Could not calculate macros: ' + err.message); }
     setCalcLoading(false);
   };
@@ -292,7 +292,7 @@ function PhotoUploader({ onDone, onCancel, userId }) {
         await insertRecipe({
           ...extracted,
           macros: extracted.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
-          macroSource: extracted.macroSource || 'estimated',
+          macroSource: extracted.macroSource === 'card' ? 'card' : 'calculated',
           photo: thumbnail,
           notes: '',
         }, userId);
