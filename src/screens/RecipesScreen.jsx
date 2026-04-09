@@ -179,10 +179,12 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
         {recipe.instructions && (
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ marginBottom: 14, color: 'var(--sage-dark)' }}>How to Make It</h3>
-            {recipe.instructions.split(/\n+/).filter(s => s.trim()).map((step, i) => {
-              // Strip leading step numbers like "1." or "Step 1:"
-              const cleaned = step.replace(/^(step\s*)?\d+[\.\:\)\-]\s*/i, '').trim();
-              if (!cleaned) return null;
+            {recipe.instructions
+              // Split on newlines OR inline numbered steps like "2." "3." "Step 2:"
+              .split(/\n+|(?=\b(?:step\s*)?\d+[\.\:\)\-]\s)/i)
+              .map(s => s.replace(/^(step\s*)?\d+[\.\:\)\-]\s*/i, '').trim())
+              .filter(s => s.length > 0)
+              .map((step, i) => {
               return (
                 <div key={i} style={{
                   display: 'flex', gap: 14, marginBottom: 16,
