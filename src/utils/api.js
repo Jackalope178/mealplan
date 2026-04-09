@@ -4,12 +4,37 @@
 const EDAMAM_APP_ID = 'YOUR_EDAMAM_APP_ID';
 const EDAMAM_APP_KEY = 'YOUR_EDAMAM_APP_KEY';
 
+// Runtime key cache
+let _anthropicKey = null;
+
+async function getAnthropicKey() {
+  if (_anthropicKey) return _anthropicKey;
+
+  // Try env var first (local dev)
+  if (import.meta.env.VITE_ANTHROPIC_API_KEY) {
+    _anthropicKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+    return _anthropicKey;
+  }
+
+  // Fetch from Supabase app_config table
+  const { supabase } = await import('./supabaseClient.js');
+  const { data, error } = await supabase
+    .from('app_config')
+    .select('value')
+    .eq('key', 'anthropic_api_key')
+    .maybeSingle();
+
+  if (error || !data?.value) {
+    throw new Error('Anthropic API key not configured. Add it to the app_config table in Supabase.');
+  }
+
+  _anthropicKey = data.value;
+  return _anthropicKey;
+}
+
 // Claude Vision: extract recipe from photo
 export async function extractRecipeFromPhoto(base64Image, mimeType = 'image/jpeg') {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('Anthropic API key not found. Set VITE_ANTHROPIC_API_KEY in your environment.');
-  }
+  const apiKey = await getAnthropicKey();
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
