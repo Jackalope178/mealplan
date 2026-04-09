@@ -169,11 +169,11 @@ function IngredientMacroEditor({ ingredient, onUpdate, onEstimate, estimating })
                 <label style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 600 }}>
                   {key === 'calories' ? 'Cal' : key.charAt(0).toUpperCase() + key.slice(1)}
                 </label>
-                <input type="number" min="0" value={macros[key]}
+                <input type="number" min="0" value={macros[key] || ''} placeholder="0"
                   style={{ padding: '6px 8px', fontSize: 14 }}
                   onChange={e => onUpdate({
                     ...ingredient,
-                    macros: { ...macros, [key]: parseInt(e.target.value) || 0 },
+                    macros: { ...macros, [key]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 },
                   })} />
               </div>
             ))}
@@ -559,8 +559,8 @@ function RecipeEditor({ recipe, onSave, onCancel }) {
               { key: 'carbs', label: 'Carbs (g)' }, { key: 'fat', label: 'Fat (g)' }].map(({ key, label }) => (
               <div key={key}>
                 <label className="form-label" style={{ fontSize: 14 }}>{label}</label>
-                <input type="number" min="0" value={form.macros[key]} disabled={!form.manualMacros}
-                  onChange={e => setForm(prev => ({ ...prev, macros: { ...prev.macros, [key]: parseInt(e.target.value) || 0 } }))} />
+                <input type="number" min="0" value={form.macros[key] || ''} placeholder="0" disabled={!form.manualMacros}
+                  onChange={e => setForm(prev => ({ ...prev, macros: { ...prev.macros, [key]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 } }))} />
               </div>
             ))}
           </div>

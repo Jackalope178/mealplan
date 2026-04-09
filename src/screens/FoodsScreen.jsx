@@ -97,11 +97,12 @@ function FoodEditor({ food, onSave, onCancel }) {
             ].map(({ key, label }) => (
               <div key={key}>
                 <label className="form-label" style={{ fontSize: 14 }}>{label}</label>
-                <input type="number" min="0" value={form.macros[key]}
+                <input type="number" min="0" value={form.macros[key] || ''}
                   disabled={!form.manualMacros}
                   style={{ opacity: form.manualMacros ? 1 : 0.7 }}
+                  placeholder="0"
                   onChange={e => setForm(prev => ({
-                    ...prev, macros: { ...prev.macros, [key]: parseInt(e.target.value) || 0 },
+                    ...prev, macros: { ...prev.macros, [key]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 },
                   }))} />
               </div>
             ))}
