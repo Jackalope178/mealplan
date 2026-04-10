@@ -2,11 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
 import { extractRecipeFromPhotos, calculateMacros, estimateIngredientMacros } from '../utils/api';
 
-const PRESET_TAGS = [
-  'Chicken', 'Beef', 'Pork', 'Fish', 'Shrimp', 'Turkey', 'Lamb',
-  'Tofu', 'Vegetarian', 'Vegan', 'Pasta', 'Soup', 'Salad',
-  'Breakfast', 'Slow Cooker', 'Quick',
-];
+const PROTEIN_TAGS = ['Chicken', 'Beef', 'Pork', 'Fish', 'Shrimp', 'Turkey', 'Lamb', 'Tofu'];
+const CATEGORY_TAGS = ['Vegetarian', 'Vegan', 'Pasta', 'Soup', 'Salad', 'Breakfast', 'Slow Cooker', 'Quick'];
+const PRESET_TAGS = [...PROTEIN_TAGS, ...CATEGORY_TAGS];
 
 // Resize an image file via canvas. Returns a data URL (image/jpeg).
 function resizeImage(file, maxSize, quality = 0.8) {
@@ -447,6 +445,8 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
 
 function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite, onView }) {
   const isFav = (recipe.favoritedBy || []).includes(userId);
+  const proteinTag = (recipe.tags || []).find(t => PROTEIN_TAGS.includes(t));
+  const otherTags = (recipe.tags || []).filter(t => t !== proteinTag);
 
   return (
     <div className="card" onClick={() => onView(recipe)} style={{ cursor: 'pointer' }}>
@@ -456,8 +456,21 @@ function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite, onView
             <h3 style={{ marginBottom: 0 }}>{recipe.name}</h3>
             <HeartButton isFavorite={isFav} onToggle={(e) => { onToggleFavorite(recipe.id, isFav); }} />
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6, marginBottom: 8 }}>
-            <SourceBadge source={recipe.macroSource} />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6, marginBottom: 8 }}>
+            {proteinTag && (
+              <span style={{
+                padding: '3px 10px', borderRadius: 10, fontSize: 13,
+                fontWeight: 700, fontFamily: 'var(--font-display)',
+                background: 'var(--sage)', color: 'white',
+              }}>{proteinTag}</span>
+            )}
+            {otherTags.map(tag => (
+              <span key={tag} style={{
+                padding: '3px 10px', borderRadius: 10, fontSize: 12,
+                fontWeight: 600, fontFamily: 'var(--font-display)',
+                background: 'var(--cream-dark)', color: 'var(--text-light)',
+              }}>{tag}</span>
+            ))}
             <span style={{ fontSize: 12, color: 'var(--text-light)' }}>
               {recipe.servings} serving{recipe.servings !== 1 ? 's' : ''}
             </span>
@@ -469,9 +482,6 @@ function RecipeCard({ recipe, userId, onEdit, onDelete, onToggleFavorite, onView
         )}
       </div>
       <MacroPills macros={recipe.macros} />
-      {recipe.tags?.length > 0 && (
-        <div style={{ marginTop: 8 }}><TagChips tags={recipe.tags} small /></div>
-      )}
     </div>
   );
 }
@@ -844,32 +854,39 @@ export default function RecipesScreen({ userId }) {
         <h1>Recipes</h1>
       </div>
 
-      {/* Filter row */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        {[{ key: 'all', label: 'All' }, { key: 'favorites', label: 'Favorites' }, { key: 'mine', label: 'Mine' }].map(f => (
-          <button key={f.key} className={`btn btn-sm ${filter === f.key && !tagFilter ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => { setFilter(f.key); setTagFilter(null); }}>{f.label}</button>
+      {/* Filter tabs */}
+      <div style={{
+        display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 8,
+        WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none',
+      }}>
+        {[
+          { key: 'all', label: 'All' },
+          { key: 'favorites', label: 'Favorites' },
+          { key: 'mine', label: 'Mine' },
+        ].map(f => (
+          <button key={f.key} onClick={() => { setFilter(f.key); setTagFilter(null); }} style={{
+            padding: '8px 16px', borderRadius: 20, fontSize: 15,
+            fontWeight: 700, fontFamily: 'var(--font-display)',
+            background: filter === f.key && !tagFilter ? 'var(--sage)' : 'var(--white)',
+            color: filter === f.key && !tagFilter ? 'white' : 'var(--text)',
+            border: '2px solid ' + (filter === f.key && !tagFilter ? 'var(--sage)' : 'var(--cream-dark)'),
+            cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
+          }}>{f.label}</button>
+        ))}
+        {allTags.map(tag => (
+          <button key={tag} onClick={() => {
+            setTagFilter(tagFilter === tag ? null : tag);
+            if (tagFilter !== tag) setFilter('all');
+          }} style={{
+            padding: '8px 16px', borderRadius: 20, fontSize: 15,
+            fontWeight: 700, fontFamily: 'var(--font-display)',
+            background: tagFilter === tag ? 'var(--terracotta)' : 'var(--white)',
+            color: tagFilter === tag ? 'white' : 'var(--text)',
+            border: '2px solid ' + (tagFilter === tag ? 'var(--terracotta)' : 'var(--cream-dark)'),
+            cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
+          }}>{tag}</button>
         ))}
       </div>
-
-      {/* Tag filter row */}
-      {allTags.length > 0 && (
-        <div style={{
-          display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12,
-          overflowX: 'auto', paddingBottom: 4,
-        }}>
-          {allTags.map(tag => (
-            <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? null : tag)} style={{
-              padding: '4px 12px', borderRadius: 14, fontSize: 13,
-              fontWeight: 600, fontFamily: 'var(--font-display)',
-              background: tagFilter === tag ? 'var(--terracotta)' : 'var(--cream-dark)',
-              color: tagFilter === tag ? 'white' : 'var(--text-light)',
-              border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-              whiteSpace: 'nowrap',
-            }}>{tag}</button>
-          ))}
-        </div>
-      )}
 
       {recipes.length > 0 && (
         <input value={search} onChange={e => setSearch(e.target.value)}

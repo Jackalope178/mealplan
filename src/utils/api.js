@@ -85,7 +85,7 @@ MACROS: First, look for any pre-printed nutrition information (calories, protein
 
 ALWAYS include macros — never return null for macros.
 
-TAGS: Add relevant tags from this list based on the main protein/category: "Chicken", "Beef", "Pork", "Fish", "Shrimp", "Turkey", "Lamb", "Tofu", "Vegetarian", "Vegan", "Pasta", "Soup", "Salad", "Breakfast", "Slow Cooker", "Quick". Pick 1-3 that best fit.
+TAGS: ALWAYS include the main protein meat as the FIRST tag from: "Chicken", "Beef", "Pork", "Fish", "Shrimp", "Turkey", "Lamb", "Tofu". If no meat, use "Vegetarian" or "Vegan". Then add 1-2 category tags if they fit: "Pasta", "Soup", "Salad", "Breakfast", "Slow Cooker", "Quick". The protein tag is required.
 
 Return ONLY valid JSON with no preamble, no markdown fences:
 {
