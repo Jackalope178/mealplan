@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { fetchRecipes, insertRecipe, patchRecipe, removeRecipe, addFavorite, removeFavorite } from '../utils/db';
 import { extractRecipeFromPhotos, calculateMacros, estimateIngredientMacros } from '../utils/api';
+import PhotoEditor from '../components/PhotoEditor';
 
 const PROTEIN_TAGS = ['Chicken', 'Beef', 'Pork', 'Fish', 'Shrimp', 'Turkey', 'Lamb', 'Tofu'];
 const CATEGORY_TAGS = ['Vegetarian', 'Vegan', 'Pasta', 'Soup', 'Salad', 'Breakfast', 'Slow Cooker', 'Quick'];
@@ -214,10 +215,48 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
   const isFav = (recipe.favoritedBy || []).includes(userId);
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [editingSteps, setEditingSteps] = useState(false);
+  const [editingPhoto, setEditingPhoto] = useState(false);
   const [ingredients, setIngredients] = useState(recipe.ingredients || []);
   const [instructions, setInstructions] = useState(recipe.instructions || '');
   const [estimatingIdx, setEstimatingIdx] = useState(-1);
   const [saving, setSaving] = useState(false);
+
+  const handleSavePhoto = async (dataUrl) => {
+    try {
+      await onSave(recipe.id, { photo: dataUrl });
+    } catch (err) { alert('Could not save photo: ' + err.message); }
+    setEditingPhoto(false);
+  };
+
+  const handleUploadNewPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Compress and save
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const max = 400;
+          let w = img.width, h = img.height;
+          if (w > max || h > max) {
+            if (w > h) { h = (max / w) * h; w = max; }
+            else { w = (max / h) * w; h = max; }
+          }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    try {
+      await onSave(recipe.id, { photo: dataUrl });
+    } catch (err) { alert('Could not save photo: ' + err.message); }
+    e.target.value = '';
+  };
 
   const updateIngredient = (idx, updated) => {
     const arr = [...ingredients];
@@ -299,11 +338,42 @@ function RecipeDetail({ recipe, userId, onClose, onEdit, onDelete, onToggleFavor
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
 
-        {recipe.photo && (
-          <img src={recipe.photo} alt={recipe.name} style={{
-            width: '100%', maxHeight: 240, objectFit: 'cover',
-            borderRadius: 'var(--radius-sm)', marginBottom: 16,
-          }} />
+        {/* Photo with edit */}
+        {recipe.photo ? (
+          <div style={{ position: 'relative', marginBottom: 16 }}>
+            <img src={recipe.photo} alt={recipe.name} style={{
+              width: '100%', maxHeight: 240, objectFit: 'cover',
+              borderRadius: 'var(--radius-sm)',
+            }} />
+            {isMine && (
+              <button onClick={() => setEditingPhoto(true)} style={{
+                position: 'absolute', bottom: 8, right: 8,
+                background: 'rgba(0,0,0,0.5)', color: 'white',
+                border: 'none', borderRadius: 20, padding: '6px 14px',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                fontFamily: 'var(--font-display)',
+              }}>
+                Edit Photo
+              </button>
+            )}
+          </div>
+        ) : isMine ? (
+          <label style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: 120, background: 'var(--cream-dark)', borderRadius: 'var(--radius-sm)',
+            marginBottom: 16, cursor: 'pointer', color: 'var(--text-light)',
+            fontSize: 16, fontWeight: 600, fontFamily: 'var(--font-display)',
+            position: 'relative',
+          }}>
+            + Add Photo
+            <input type="file" accept="image/*" onChange={handleUploadNewPhoto}
+              style={{ position: 'absolute', opacity: 0, inset: 0, cursor: 'pointer' }} />
+          </label>
+        ) : null}
+
+        {editingPhoto && (
+          <PhotoEditor src={recipe.photo} onSave={handleSavePhoto}
+            onCancel={() => setEditingPhoto(false)} />
         )}
 
         <div style={{ marginBottom: 16 }}>
